@@ -22,9 +22,10 @@ const (
 )
 
 type ChatMsg struct {
-	IsOut bool   `json:"is_out"`
-	TS    int64  `json:"ts"`
-	Text  string `json:"text"`
+	IsOut    bool   `json:"is_out"`
+	IsSystem bool   `json:"is_system"`
+	TS       int64  `json:"ts"`
+	Text     string `json:"text"`
 }
 
 type Vault struct {

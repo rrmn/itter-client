@@ -41,6 +41,7 @@ type Session struct {
 	Skipped       map[string][]byte `json:"skipped,omitempty"`
 	TheirSignPub  []byte            `json:"their_sign_pub,omitempty"`
 	TheirUsername string            `json:"their_username,omitempty"`
+	Trusted       bool              `json:"trusted"` // Marks pinned identity keys
 }
 
 type Header struct {

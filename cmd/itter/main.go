@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -43,8 +42,10 @@ usage:
 setup:
   itter init <username>    create identity & register
   itter publish            upload fresh keys
-  itter verify @<user>     verify identity fingerprints
-  itter finger             show your own fingerprint
+  itter profile            show your own identity fingerprint
+  itter profile @<user>    verify a contact's fingerprint and safety number
+  itter trust @<user>      pin a contact's identity key
+  itter untrust @<user>    un-pin a contact's identity key
 
 env:
   ITTER_RELAY   relay base URL (default http://127.0.0.1:8080)
@@ -70,10 +71,12 @@ func main() {
 		err = cmdFetch(os.Args[2:])
 	case "senders":
 		err = cmdSenders()
-	case "verify":
-		err = cmdVerify()
-	case "finger":
-		err = cmdFinger()
+	case "profile", "p":
+		err = cmdProfile(os.Args[2:])
+	case "trust":
+		err = cmdTrust(os.Args[2:])
+	case "untrust":
+		err = cmdUntrust(os.Args[2:])
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -205,45 +208,113 @@ func cmdPublish() error {
 	return nil
 }
 
-func cmdVerify() error {
-	if len(os.Args) < 3 {
-		return errors.New("usage: itter verify @<user>")
+func cmdTrust(args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: itter trust @<user>")
 	}
-	target := strings.TrimPrefix(os.Args[2], "@")
-	v, _, err := unlock()
+	target := strings.TrimPrefix(args[0], "@")
+	v, pass, err := unlock()
 	if err != nil {
 		return err
 	}
-	b, err := relay.New(relayURL()).FetchBundle(target)
-	if err != nil {
-		return err
-	}
-	if err := b.VerifySignature(); err != nil {
-		return err
-	}
-	fmt.Printf("@%s fingerprint:\n  %s\n", target, pqc.Fingerprint(b.SignPub))
-	
+
 	v.Mu.Lock()
 	sess := v.Sessions[target]
 	v.Mu.Unlock()
-	
-	if sess != nil {
-		if !bytes.Equal(sess.TheirSignPub, b.SignPub) {
-			fmt.Println("!!! IDENTITY KEY CHANGED since your session began. Do not trust silently.")
-		}
-		fmt.Printf("safety number:\n%s\n", pqc.SafetyNumber(v.Identity.SignPub, b.SignPub))
-	} else {
-		fmt.Println("no session yet — record this fingerprint before first contact")
+
+	if sess == nil {
+		return errors.New("no session yet. Send or receive a message first to establish an identity to trust.")
 	}
+
+	sess.Trusted = true
+	if err := v.Save(configDir(), pass); err != nil {
+		return err
+	}
+	fmt.Printf("Identity pinned for @%s.\n", target)
 	return nil
 }
 
-func cmdFinger() error {
+func cmdUntrust(args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: itter untrust @<user>")
+	}
+	target := strings.TrimPrefix(args[0], "@")
+	v, pass, err := unlock()
+	if err != nil {
+		return err
+	}
+
+	v.Mu.Lock()
+	sess := v.Sessions[target]
+	v.Mu.Unlock()
+
+	if sess == nil {
+		return errors.New("no session found.")
+	}
+
+	sess.Trusted = false
+	if err := v.Save(configDir(), pass); err != nil {
+		return err
+	}
+	fmt.Printf("Identity un-pinned for @%s.\n", target)
+	return nil
+}
+
+func cmdProfile(args []string) error {
 	v, _, err := unlock()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("@%s fingerprint:\n  %s\n", v.Username, pqc.Fingerprint(v.Identity.SignPub))
+
+	if len(args) == 0 {
+		fmt.Printf("--- Profile: @%s ---\n", v.Username)
+		fmt.Printf("Fingerprint:\n  %s\n", pqc.Fingerprint(v.Identity.SignPub))
+		fmt.Println("\nShare this over a secure secondary channel (in person, Signal, etc.)")
+		fmt.Println("so your contacts can verify they are talking to the real you.")
+		return nil
+	}
+
+	target := strings.TrimPrefix(args[0], "@")
+	if target == v.Username {
+		fmt.Println("That's you! Run `itter profile` without arguments to see your own info.")
+		return nil
+	}
+
+	rc := relay.New(relayURL())
+	b, err := rc.FetchBundle(target)
+	if err != nil {
+		return fmt.Errorf("cannot fetch keys for @%s: %w", target, err)
+	}
+	if err := b.VerifySignature(); err != nil {
+		return fmt.Errorf("signature verification failed for @%s", target)
+	}
+
+	fmt.Printf("--- Profile: @%s ---\n", target)
+	fmt.Printf("Fingerprint:\n  %s\n\n", pqc.Fingerprint(b.SignPub))
+
+	v.Mu.Lock()
+	sess := v.Sessions[target]
+	v.Mu.Unlock()
+
+	if sess != nil {
+		if !bytes.Equal(sess.TheirSignPub, b.SignPub) {
+			fmt.Printf("%s[!] Identity key mismatch%s\n", FgBrightYellow, Reset)
+			fmt.Println("The server provided a different key than your active session.")
+		} else {
+			fmt.Printf("Key Match: Yes\n")
+		}
+		if sess.Trusted {
+			fmt.Printf("Status:    Pinned (Trusted)\n")
+		} else {
+			fmt.Printf("Status:    Not pinned (Run `itter trust @%s` to pin)\n", target)
+		}
+
+		fmt.Printf("\nSafety Number (Compare with @%s):\n%s\n", target, pqc.SafetyNumber(v.Identity.SignPub, b.SignPub))
+	} else {
+		fmt.Println("Status: No active session.")
+		fmt.Println("Record this fingerprint and verify it before sending sensitive data.")
+	}
+
 	return nil
 }
 
@@ -309,7 +380,7 @@ func customWrap(text string, maxWidth int) []string {
 	return lines
 }
 
-func formatEetLines(sender, text, self string, ts int64, termW int) []string {
+func formatEetLines(sender, text, self string, ts int64, isSystem bool, termW int) []string {
 	timeW, userW, sepW := 12, 20, 3
 	eetW := termW - timeW - userW - (sepW * 2) - 2
 	if eetW < 10 {
@@ -317,18 +388,25 @@ func formatEetLines(sender, text, self string, ts int64, termW int) []string {
 	}
 
 	timeStr := timeAgo(ts)
-	userStr := "@" + sender
-	userRaw := userStr
+	var userStr, userRaw string
 
-	if sender == self {
-		userStr = FgBrightYellow + userRaw + Reset
+	if isSystem {
+		userStr = FgBrightBlk + "system" + Reset
+		userRaw = "system"
 	} else {
-		userStr = FgCyan + userRaw + Reset
+		userRaw = "@" + sender
+		if sender == self {
+			userStr = FgBrightYellow + userRaw + Reset
+		} else {
+			userStr = FgCyan + userRaw + Reset
+		}
 	}
 
 	userTrunc := runewidth.Truncate(userRaw, userW, "")
 	if len(userTrunc) < len(userRaw) {
-		if sender == self {
+		if isSystem {
+			userStr = FgBrightBlk + userTrunc + Reset
+		} else if sender == self {
 			userStr = FgBrightYellow + userTrunc + Reset
 		} else {
 			userStr = FgCyan + userTrunc + Reset
@@ -363,7 +441,7 @@ func formatEetLines(sender, text, self string, ts int64, termW int) []string {
 	return output
 }
 
-// --- Messaging Logic (Single-Shot) ---
+// --- Messaging Logic ---
 
 func sendSingle(v *vault.Vault, pass string, target string, text string) error {
 	rc := relay.New(relayURL())
@@ -395,7 +473,7 @@ func sendSingle(v *vault.Vault, pass string, target string, text string) error {
 		return err
 	}
 
-	chatMsg := vault.ChatMsg{IsOut: true, TS: time.Now().Unix(), Text: text}
+	chatMsg := vault.ChatMsg{IsOut: true, IsSystem: false, TS: time.Now().Unix(), Text: text}
 	v.AddMessage(target, chatMsg)
 	return v.Save(configDir(), pass)
 }
@@ -412,9 +490,31 @@ func pullQueue(v *vault.Vault, rc *relay.Client, target string) (int, error) {
 		case pqc.WireInitial:
 			var im pqc.InitialMessage
 			json.Unmarshal(w.Payload, &im)
+
+			v.Mu.Lock()
+			oldSess := v.Sessions[w.From]
+			v.Mu.Unlock()
+
+			if oldSess != nil && !bytes.Equal(oldSess.TheirSignPub, im.IKSign) {
+				if oldSess.Trusted {
+					sysMsg := vault.ChatMsg{IsSystem: true, TS: time.Now().Unix(), Text: fmt.Sprintf("Blocked message from @%s: identity key changed but is pinned. Unpin to accept.", w.From)}
+					v.AddMessage(w.From, sysMsg)
+					count++
+					continue // Skip updating session
+				} else {
+					sysMsg := vault.ChatMsg{IsSystem: true, TS: time.Now().Unix(), Text: fmt.Sprintf("Identity key changed for @%s.", w.From)}
+					v.AddMessage(w.From, sysMsg)
+					count++
+				}
+			}
+
 			sess, p, err := pqc.Respond(v.Identity, v.FindSPK(im.SPKID), v.FindOTPK(im.OTPKID), &im)
 			if err == nil {
 				sess.TheirUsername = w.From
+				if oldSess != nil && bytes.Equal(oldSess.TheirSignPub, im.IKSign) {
+					sess.Trusted = oldSess.Trusted
+				}
+
 				v.Mu.Lock()
 				v.Sessions[w.From] = sess
 				v.Mu.Unlock()
@@ -439,7 +539,7 @@ func pullQueue(v *vault.Vault, rc *relay.Client, target string) (int, error) {
 
 		if pt != nil {
 			im, _ := pqc.UnpackInner(pt)
-			chatMsg := vault.ChatMsg{IsOut: false, TS: im.TS, Text: im.Text}
+			chatMsg := vault.ChatMsg{IsOut: false, IsSystem: false, TS: im.TS, Text: im.Text}
 			v.AddMessage(w.From, chatMsg)
 			count++
 		}
@@ -460,18 +560,6 @@ func cmdDM(args []string) error {
 	}
 	if target == v.Username {
 		return errors.New("cannot message yourself")
-	}
-
-	if term.IsTerminal(int(os.Stdin.Fd())) && text == "" {
-		fmt.Fprintln(os.Stderr, "Type message, press Enter, then Ctrl-D to send:")
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-		text = strings.TrimSpace(string(b))
-	}
-	if text == "" {
-		return errors.New("empty message")
 	}
 
 	if err := sendSingle(v, pass, target, text); err != nil {
@@ -534,7 +622,7 @@ func cmdFetch(args []string) error {
 			if m.IsOut {
 				sender = v.Username
 			}
-			for _, line := range formatEetLines(sender, m.Text, v.Username, m.TS, w) {
+			for _, line := range formatEetLines(sender, m.Text, v.Username, m.TS, m.IsSystem, w) {
 				fmt.Println(line)
 			}
 		}
@@ -556,7 +644,7 @@ func cmdFetch(args []string) error {
 			if d.m.IsOut {
 				sender = v.Username
 			}
-			for _, line := range formatEetLines(sender, d.m.Text, v.Username, d.m.TS, w) {
+			for _, line := range formatEetLines(sender, d.m.Text, v.Username, d.m.TS, d.m.IsSystem, w) {
 				fmt.Println(line)
 			}
 		}
@@ -740,7 +828,7 @@ func (m appModel) buildLines() []string {
 			if msg.IsOut {
 				sender = m.v.Username
 			}
-			lines = append(lines, formatEetLines(sender, msg.Text, m.v.Username, msg.TS, m.width)...)
+			lines = append(lines, formatEetLines(sender, msg.Text, m.v.Username, msg.TS, msg.IsSystem, m.width)...)
 		}
 	} else {
 		all := m.v.GetAllMessages()
@@ -760,7 +848,7 @@ func (m appModel) buildLines() []string {
 			if d.msg.IsOut {
 				sender = m.v.Username
 			}
-			lines = append(lines, formatEetLines(sender, d.msg.Text, m.v.Username, d.msg.TS, m.width)...)
+			lines = append(lines, formatEetLines(sender, d.msg.Text, m.v.Username, d.msg.TS, d.msg.IsSystem, m.width)...)
 		}
 	}
 	return lines
@@ -777,7 +865,7 @@ func (m appModel) View() string {
 	if m.filter != "" {
 		title = "@" + m.filter
 	}
-	
+
 	header1 := fmt.Sprintf("%s--- Direct Messages (%s) ---%s\n", Bold, title, Reset)
 	timeW, userW, sepW := 12, 20, 3
 	eetW := m.width - timeW - userW - (sepW * 2) - 2
@@ -786,7 +874,7 @@ func (m appModel) View() string {
 	}
 	header2 := fmt.Sprintf("%-*s   %-*s   %-*s\n", timeW, "Time", userW, "User", eetW, "Eet")
 	header3 := fmt.Sprintf("%s%s%s\n", FgBrightBlk, strings.Repeat("-", m.width), Reset)
-	
+
 	b.WriteString(header1 + header2 + header3)
 
 	lines := m.buildLines()
