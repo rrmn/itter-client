@@ -1,1 +1,8 @@
 .DS_Store
+_backup_pre_pq_v2/
+_to_delete/
+_run/
+_deploy/
+server-check.command
+doorlinks-fetch.command
+golive.command

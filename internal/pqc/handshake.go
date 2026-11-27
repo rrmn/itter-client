@@ -1,214 +1,293 @@
 package pqc
 
 import (
-	"bytes"
-	"crypto/ecdh"
-	"crypto/hkdf"
-	"crypto/mlkem"
-	"crypto/rand"
-	"crypto/sha256"
+	"crypto/sha512"
 	"errors"
+	"strings"
 )
 
-const (
-	handshakeInfo = "ITTER-PQXDH-V1"
-	rootInfo      = "ITTER-RK-V1"
-	msgInfo       = "ITTER-MK-V1"
-)
+// PQXDH-max: an X3DH/PQXDH-style handshake in which every secret is hybrid.
+//
+//	DH1 = X25519(IK_A, SPK_B)   DH2 = X25519(EK_A, IK_B)
+//	DH3 = X25519(EK_A, SPK_B)   DH4 = X25519(EK_A, OPK_B)           (optional)
+//	SS1 = ML-KEM-1024 -> SPK_B  SS2 = FrodoKEM-1344 -> SPK_B
+//	SS3 = ML-KEM-1024 -> OPK_B  SS4 = FrodoKEM-1344 -> OPK_B        (optional)
+//	TH  = SHA-512(account names, identities, prekeys, EK, all ciphertexts)
+//	SK  = HKDF(salt = TH, 0xFF*32 || DH1..4 || SS1..4)
+//
+// Unlike Signal's PQXDH, the initiator signs TH with the full composite
+// signature (SLH-DSA included), so the responder gets post-quantum
+// authentication of who started the conversation, not just confidentiality.
+// The responder is authenticated by the composite signature on SPK_B.
+
+// InitHandshake is the initiator's handshake. It is attached unchanged to
+// every message until the responder answers, so losing the first message
+// does not lose the conversation.
+type InitHandshake struct {
+	V int `json:"v"`
+	// From and To are the account names of initiator and responder. They are
+	// part of the signed transcript, so a handshake cannot be re-labelled as
+	// coming from, or re-addressed to, another account.
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Identity []byte `json:"identity"`
+	EK       []byte `json:"ek"`
+	SPKID    uint32 `json:"spk_id"`
+	OTPKID   uint32 `json:"otpk_id,omitempty"`
+	CTMLKEM  []byte `json:"ct_mlkem"`
+	CTFrodo  []byte `json:"ct_frodo"`
+	OTMLKEM  []byte `json:"ot_mlkem,omitempty"`
+	OTFrodo  []byte `json:"ot_frodo,omitempty"`
+	Sig      []byte `json:"sig"`
+}
 
 var (
 	errNoSPK  = errors.New("pqc: signed prekey not found")
 	errNoOTPK = errors.New("pqc: one-time prekey not found")
+	errHS     = errors.New("pqc: malformed handshake")
 )
 
-type InitialMessage struct {
-	IKSign []byte   `json:"ik_sign"`
-	IKDH   []byte   `json:"ik_dh"`
-	EK     []byte   `json:"ek"`
-	SPKID  uint32   `json:"spk_id"`
-	OTPKID uint32   `json:"otpk_id,omitempty"`
-	CT1    []byte   `json:"ct1"`
-	CT2    []byte   `json:"ct2,omitempty"`
-	Env    Envelope `json:"env"`
+// HandshakeID identifies a handshake (the ephemeral key is unique).
+func (hs *InitHandshake) HandshakeID() []byte {
+	e := &encoder{}
+	e.raw([]byte(labelPrefix + "handshake-id")).bytes(hs.Identity).bytes(hs.EK).bytes(hs.CTMLKEM)
+	sum := sha512.Sum512(e.b)
+	return sum[:32]
 }
 
-func kdfSK(parts ...[]byte) ([]byte, error) {
-	ikm := bytes.Repeat([]byte{0xFF}, 32)
-	for _, p := range parts {
-		ikm = append(ikm, p...)
+func transcript(ikA, ikB []byte, spk, otpk *PreKeyPublic, hs *InitHandshake) []byte {
+	e := &encoder{}
+	e.raw([]byte(labelPrefix + "pqxdh-transcript"))
+	e.str(strings.ToLower(hs.From)).str(strings.ToLower(hs.To)).bytes(ikA).bytes(ikB)
+	e.u32(spk.ID).bytes(spk.DH).bytes(spk.MLKEM).bytes(spk.Frodo)
+	if otpk != nil {
+		e.u8(1).u32(otpk.ID).bytes(otpk.DH).bytes(otpk.MLKEM).bytes(otpk.Frodo)
+	} else {
+		e.u8(0)
 	}
-	return hkdf.Key(sha256.New, ikm, nil, handshakeInfo, 32)
+	e.bytes(hs.EK).bytes(hs.CTMLKEM).bytes(hs.CTFrodo).bytes(hs.OTMLKEM).bytes(hs.OTFrodo)
+	sum := sha512.Sum512(e.b)
+	return sum[:]
 }
 
-func Initiate(id *Identity, b *PublicBundle, plaintext []byte) (*Session, *InitialMessage, error) {
-	if err := b.VerifySignature(); err != nil {
-		return nil, nil, err
-	}
-	ikDH, err := id.dhPriv()
-	if err != nil {
-		return nil, nil, err
-	}
-	ek, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, nil, err
-	}
-	dh1, err := dh(ikDH, b.SPKDHPub)
-	if err != nil {
-		return nil, nil, err
-	}
-	dh2, err := dh(ek, b.IKDHPub)
-	if err != nil {
-		return nil, nil, err
-	}
-	dh3, err := dh(ek, b.SPKDHPub)
-	if err != nil {
-		return nil, nil, err
-	}
-	spkKEM, err := mlkem.NewEncapsulationKey1024(b.SPKKEMPub)
-	if err != nil {
-		return nil, nil, err
-	}
-	ss1, ct1 := spkKEM.Encapsulate()
-
-	var dh4, ss2, ct2 []byte
-	if len(b.OTPKKEMPub) > 0 {
-		if dh4, err = dh(ek, b.OTPKDHPub); err != nil {
-			return nil, nil, err
-		}
-		opk, err := mlkem.NewEncapsulationKey1024(b.OTPKKEMPub)
-		if err != nil {
-			return nil, nil, err
-		}
-		ss2, ct2 = opk.Encapsulate()
-	}
-
-	sk, err := kdfSK(dh1, dh2, dh3, dh4, ss1, ss2)
-	if err != nil {
-		return nil, nil, err
-	}
-	zero(dh1)
-	zero(dh2)
-	zero(dh3)
-	zero(dh4)
-	zero(ss2)
-
-	s := &Session{RK: sk, TheirSignPub: b.SignPub, TheirUsername: b.Username}
-	if err := s.rotateSelf(); err != nil {
-		return nil, nil, err
-	}
-	ratchetPriv, err := ecdh.X25519().NewPrivateKey(s.DHsPriv)
-	if err != nil {
-		return nil, nil, err
-	}
-	seed, err := dh(ratchetPriv, b.SPKDHPub)
-	if err != nil {
-		return nil, nil, err
-	}
-	s.RK, s.CKs, err = kdfRK(s.RK, append(seed, ss1...))
-	zero(seed)
-	zero(ss1)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	h := s.header()
-	mk, err := s.nextSendKey()
-	if err != nil {
-		return nil, nil, err
-	}
-	body, err := sealBody(mk, headerAD(&h), plaintext)
-	zero(mk)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	im := &InitialMessage{
-		IKSign: id.SignPub, IKDH: id.DHPub, EK: ek.PublicKey().Bytes(),
-		SPKID: b.SPKID, OTPKID: b.OTPKID, CT1: ct1, CT2: ct2,
-		Env: Envelope{Header: h, Body: body},
-	}
-	return s, im, nil
+func sessionAD(ikA, ikB []byte) []byte {
+	a := sha512.Sum512(ikA)
+	b := sha512.Sum512(ikB)
+	ad := append([]byte("ITR2"), a[:32]...)
+	return append(ad, b[:32]...)
 }
 
-func Respond(id *Identity, spk *SignedPreKey, otpk *OneTimePreKey, im *InitialMessage) (*Session, []byte, error) {
-	if spk == nil || spk.ID != im.SPKID {
-		return nil, nil, errNoSPK
+func newSession(initiator bool, th, ikm, ikA, ikB []byte) *Session {
+	sk := kdf(th, ikm, "pqxdh/sk", 96)
+	skDR, sk1, sk2 := sk[:32], sk[32:64], sk[64:96]
+	return &Session{
+		V:         ProtocolVersion,
+		Initiator: initiator,
+		AD:        sessionAD(ikA, ikB),
+		PQ1:       newBraid(braidMLKEM, sk1, initiator),
+		PQ1Chain:  newPQChain(braidMLKEM, sk1, initiator),
+		PQ2:       newBraid(braidFrodo, sk2, initiator),
+		PQ2Chain:  newPQChain(braidFrodo, sk2, initiator),
+		DR:        &DR{RK: append([]byte(nil), skDR...)},
 	}
-	spkDH, err := ecdh.X25519().NewPrivateKey(spk.DHPriv)
+}
+
+// Initiate starts a session between account me and the owner of bundle b.
+func Initiate(id *Identity, me string, b *PublicBundle) (*Session, error) {
+	ikB, err := b.Verify()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	spkKEM, err := mlkem.NewDecapsulationKey1024(spk.KEMPriv)
+	ekPriv, ekPub, err := x25519Generate()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	ikDH, err := id.dhPriv()
-	if err != nil {
-		return nil, nil, err
+	defer zero(ekPriv)
+
+	var secrets [][]byte
+	defer func() {
+		for _, s := range secrets {
+			zero(s)
+		}
+	}()
+	dh := func(priv, pub []byte) error {
+		out, err := x25519(priv, pub)
+		if err == nil {
+			secrets = append(secrets, out)
+		}
+		return err
 	}
-	dh1, err := dh(spkDH, im.IKDH)
-	if err != nil {
-		return nil, nil, err
+	if err := dh(id.DHPriv, b.SPK.DH); err != nil {
+		return nil, err
 	}
-	dh2, err := dh(ikDH, im.EK)
-	if err != nil {
-		return nil, nil, err
+	if err := dh(ekPriv, ikB.X25519); err != nil {
+		return nil, err
 	}
-	dh3, err := dh(spkDH, im.EK)
-	if err != nil {
-		return nil, nil, err
+	if err := dh(ekPriv, b.SPK.DH); err != nil {
+		return nil, err
 	}
-	ss1, err := spkKEM.Decapsulate(im.CT1)
-	if err != nil {
-		return nil, nil, err
+	if b.OTPK != nil {
+		if err := dh(ekPriv, b.OTPK.DH); err != nil {
+			return nil, err
+		}
 	}
 
-	var dh4, ss2 []byte
-	if im.OTPKID != 0 {
-		if otpk == nil || otpk.ID != im.OTPKID {
-			return nil, nil, errNoOTPK
+	hs := &InitHandshake{V: ProtocolVersion, From: me, To: b.Username, Identity: id.Pub.Encode(), EK: ekPub, SPKID: b.SPK.ID}
+	var kemSS [][]byte
+	encap := func(k kemScheme, ek []byte) ([]byte, error) {
+		ss, ct, err := k.encapsulate(ek)
+		if err == nil {
+			kemSS = append(kemSS, ss)
 		}
-		opkDH, err := ecdh.X25519().NewPrivateKey(otpk.DHPriv)
-		if err != nil {
-			return nil, nil, err
+		return ct, err
+	}
+	if hs.CTMLKEM, err = encap(kemMLKEM1024, b.SPK.MLKEM); err != nil {
+		return nil, err
+	}
+	if hs.CTFrodo, err = encap(kemFrodo1344, b.SPK.Frodo); err != nil {
+		return nil, err
+	}
+	if b.OTPK != nil {
+		hs.OTPKID = b.OTPK.ID
+		if hs.OTMLKEM, err = encap(kemMLKEM1024, b.OTPK.MLKEM); err != nil {
+			return nil, err
 		}
-		opkKEM, err := mlkem.NewDecapsulationKey1024(otpk.KEMPriv)
-		if err != nil {
-			return nil, nil, err
+		if hs.OTFrodo, err = encap(kemFrodo1344, b.OTPK.Frodo); err != nil {
+			return nil, err
 		}
-		if dh4, err = dh(opkDH, im.EK); err != nil {
-			return nil, nil, err
+	}
+	secrets = append(secrets, kemSS...)
+
+	th := transcript(hs.Identity, b.Identity, b.SPK, b.OTPK, hs)
+	if hs.Sig, err = id.Sign.SignFull(th, "pqxdh-init"); err != nil {
+		return nil, err
+	}
+
+	s := newSession(true, th, handshakeIKM(secrets), hs.Identity, b.Identity)
+	if s.DR, err = drInitAlice(s.DR.RK, b.SPK.DH); err != nil {
+		return nil, err
+	}
+	s.PendingInit = hs
+	s.HandshakeID = hs.HandshakeID()
+	s.TheirIdentity = append([]byte(nil), b.Identity...)
+	s.TheirUsername = b.Username
+	return s, nil
+}
+
+func handshakeIKM(secrets [][]byte) []byte {
+	ikm := make([]byte, 32)
+	for i := range ikm {
+		ikm[i] = 0xFF
+	}
+	for _, s := range secrets {
+		ikm = append(ikm, s...)
+	}
+	return ikm
+}
+
+// Respond answers a handshake addressed to account me with identity id. spk
+// and otpk are the prekeys the handshake names (otpk may be nil when none was
+// used). The initiator's composite signature is verified before any key is
+// derived. The returned session's TheirUsername is the name the initiator
+// signed; the caller must check it against where the message came from.
+func Respond(id *Identity, me string, spk, otpk *PreKey, hs *InitHandshake) (*Session, error) {
+	if hs.V != ProtocolVersion {
+		return nil, errHS
+	}
+	if hs.From == "" || !strings.EqualFold(hs.To, me) {
+		return nil, errors.New("pqc: handshake is addressed to another account")
+	}
+	ikA, err := DecodeIdentityKey(hs.Identity)
+	if err != nil {
+		return nil, err
+	}
+	if spk == nil || spk.ID != hs.SPKID {
+		return nil, errNoSPK
+	}
+	if len(hs.EK) != 32 || len(hs.CTMLKEM) != kemMLKEM1024.ctSize() || len(hs.CTFrodo) != kemFrodo1344.ctSize() ||
+		len(hs.Sig) != FullSigSize {
+		return nil, errHS
+	}
+	if hs.OTPKID != 0 {
+		if otpk == nil || otpk.ID != hs.OTPKID {
+			return nil, errNoOTPK
 		}
-		if ss2, err = opkKEM.Decapsulate(im.CT2); err != nil {
-			return nil, nil, err
+		if len(hs.OTMLKEM) != kemMLKEM1024.ctSize() || len(hs.OTFrodo) != kemFrodo1344.ctSize() {
+			return nil, errHS
+		}
+	} else if len(hs.OTMLKEM) != 0 || len(hs.OTFrodo) != 0 {
+		return nil, errHS
+	}
+
+	spkPub, err := spk.Public()
+	if err != nil {
+		return nil, err
+	}
+	var otpkPub *PreKeyPublic
+	if hs.OTPKID != 0 {
+		if otpkPub, err = otpk.Public(); err != nil {
+			return nil, err
+		}
+	}
+	myID := id.Pub.Encode()
+	th := transcript(hs.Identity, myID, spkPub, otpkPub, hs)
+	if err := ikA.VerifyFull(th, hs.Sig, "pqxdh-init"); err != nil {
+		return nil, errors.New("pqc: handshake signature invalid")
+	}
+
+	var secrets [][]byte
+	defer func() {
+		for _, s := range secrets {
+			zero(s)
+		}
+	}()
+	dh := func(priv, pub []byte) error {
+		out, err := x25519(priv, pub)
+		if err == nil {
+			secrets = append(secrets, out)
+		}
+		return err
+	}
+	if err := dh(spk.DHPriv, ikA.X25519); err != nil {
+		return nil, err
+	}
+	if err := dh(id.DHPriv, hs.EK); err != nil {
+		return nil, err
+	}
+	if err := dh(spk.DHPriv, hs.EK); err != nil {
+		return nil, err
+	}
+	if otpk != nil && hs.OTPKID != 0 {
+		if err := dh(otpk.DHPriv, hs.EK); err != nil {
+			return nil, err
+		}
+	}
+	decap := func(k kemScheme, seed, ct []byte) error {
+		ss, err := k.decapsulate(seed, ct)
+		if err == nil {
+			secrets = append(secrets, ss)
+		}
+		return err
+	}
+	if err := decap(kemMLKEM1024, spk.MLKEMSeed, hs.CTMLKEM); err != nil {
+		return nil, err
+	}
+	if err := decap(kemFrodo1344, spk.FrodoSeed, hs.CTFrodo); err != nil {
+		return nil, err
+	}
+	if hs.OTPKID != 0 {
+		if err := decap(kemMLKEM1024, otpk.MLKEMSeed, hs.OTMLKEM); err != nil {
+			return nil, err
+		}
+		if err := decap(kemFrodo1344, otpk.FrodoSeed, hs.OTFrodo); err != nil {
+			return nil, err
 		}
 	}
 
-	sk, err := kdfSK(dh1, dh2, dh3, dh4, ss1, ss2)
-	if err != nil {
-		return nil, nil, err
-	}
-	zero(dh1)
-	zero(dh2)
-	zero(dh3)
-	zero(dh4)
-	zero(ss2)
-
-	s := &Session{
-		RK:           sk,
-		DHsPub:       spk.DHPub,
-		DHsPriv:      spk.DHPriv,
-		KEMsPub:      spk.KEMPub,
-		KEMsPriv:     spk.KEMPriv,
-		TheirSignPub: im.IKSign,
-	}
-	if err := s.receiveRotation(&im.Env.Header, ss1); err != nil {
-		return nil, nil, err
-	}
-	zero(ss1)
-	pt, err := s.Decrypt(&im.Env)
-	if err != nil {
-		return nil, nil, err
-	}
-	return s, pt, nil
+	s := newSession(false, th, handshakeIKM(secrets), hs.Identity, myID)
+	s.DR = drInitBob(s.DR.RK, spk.DHPriv, spkPub.DH)
+	s.HandshakeID = hs.HandshakeID()
+	s.TheirIdentity = append([]byte(nil), hs.Identity...)
+	s.TheirUsername = hs.From
+	return s, nil
 }
