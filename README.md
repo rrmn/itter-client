@@ -12,11 +12,16 @@ FrodoKEM, SLH-DSA and symmetric crypto. No RSA anywhere.
 ## Install
 
 ```sh
-curl -fsSL https://github.com/rrmn/itter-client/releases/latest/download/install.sh | sh
+curl -fsSL https://itter.sh/install | sh
 ```
 
-macOS and Linux, Apple silicon / ARM and Intel / AMD. No sudo: it puts `itter`
-in a folder on your PATH (and says so if it has to add one).
+macOS and Linux, Apple silicon / ARM and Intel / AMD. It puts `itter` in a
+folder on your PATH, without sudo (if that folder is not on your PATH yet, it
+adds it in your shell's startup file and says so), and starts it.
+`itter.sh/install` leads to [install.sh](install.sh) in the newest release:
+read it first with `curl -fsSL https://itter.sh/install | less`. Settings go
+after the `|`: `| ITTER_START=0 sh` installs without starting itter,
+`| ITTER_PATH=0 sh` leaves your startup files alone.
 
 Later updates: `itter update`. It installs a release only if it is signed
 with itter's **release key**, which is post-quantum too (Ed25519 + ML-DSA-87 +
@@ -34,10 +39,10 @@ Only the very first download is taken on trust. To check it yourself, see
 itter
 ```
 
-The first time, it asks for your itter username (a new one signs you up) and
-logs in with the SSH key you use for itter: from ssh-agent, or
-`~/.ssh/id_ed25519` / `id_ecdsa` (RSA keys are refused). From then on it *is*
-itter: everything works as over `ssh`.
+The first time (the installer starts it for you), it asks for your itter
+username (a new one signs you up) and logs in with the SSH key you use for
+itter: from ssh-agent, or `~/.ssh/id_ed25519` / `id_ecdsa` (RSA keys are
+refused). From then on it *is* itter: everything works as over `ssh`.
 
 **Your DMs:** type `dm` (or `dm @user`), or press **Ctrl-]**. **Esc** brings
 you back to itter, which kept going meanwhile. New DMs show in the terminal's
@@ -135,6 +140,11 @@ diff out/SHA256SUMS SHA256SUMS                                 # same files, byt
 Builds are reproducible: the same source and Go version give the same files.
 The fingerprint above, compared with what someone else sees (on the itter
 website, from a friend), makes sure `release-key.pub` is the right key.
+
+`https://itter.sh/install` is a redirect on itter's website to `install.sh` of
+the newest release. To leave the website out of the first download, take it
+from GitHub directly:
+`curl -fsSL https://github.com/rrmn/itter-client/releases/latest/download/install.sh | sh`.
 
 
 ## Running a relay

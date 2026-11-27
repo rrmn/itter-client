@@ -305,7 +305,9 @@ made with the release key, under the context `itter/v2/sig/release`. The
 program carries the public half and `itter update` installs nothing that does
 not verify, nor anything older than what it is. The private half stays on the
 maintainer's computer, sealed with a passphrase (Argon2id, AES-256-GCM). The
-first download is trust on first use (see the README for checking it).
+first download is trust on first use (see the README for checking it): in
+HTTPS, in GitHub, and for `https://itter.sh/install` also in itter's website,
+which redirects it to the newest release's `install.sh` on GitHub.
 
 ## Known limits
 

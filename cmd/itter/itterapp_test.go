@@ -149,12 +149,12 @@ func TestItterAppDM(t *testing.T) {
 	if target, ok := parseMarker(markers[0]); len(markers) != 1 || !ok || target != "bob" {
 		t.Fatalf("markers %q", markers)
 	}
-	if strings.Contains(text.String(), "install.sh") {
+	if strings.Contains(text.String(), "curl -fsSL") {
 		t.Fatalf("the program was told to install itself: %q", text.String())
 	}
 
 	got = dm("SSH-2.0-OpenSSH_9.6", "instead of ssh")
-	if strings.Contains(got, "\x1b]7777") || !strings.Contains(got, "install.sh") {
+	if strings.Contains(got, "\x1b]7777") || !strings.Contains(got, "curl -fsSL") {
 		t.Fatalf("plain ssh: %q", got)
 	}
 }
