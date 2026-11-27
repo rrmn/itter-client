@@ -24,8 +24,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/pqc"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/pqc"
 )
 
 const (

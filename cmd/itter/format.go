@@ -9,7 +9,7 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
-	"itter-cli/internal/vault"
+	"github.com/rrmn/itter-client/internal/vault"
 )
 
 const (

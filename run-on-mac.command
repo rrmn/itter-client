@@ -3,7 +3,7 @@
 # Double-click it in Finder, or run it from a terminal.
 #
 # It works only inside this folder and a temporary directory. Your real
-# ~/.itter-cli, your SSH keys and the real itter are never touched. The
+# ~/.itter, your SSH keys and the real itter are never touched. The
 # end-to-end part creates two throwaway accounts (one of them with a second,
 # linked device) on a relay that runs on this machine only, stores their vault
 # keys in your login keychain like the real client does, and removes them

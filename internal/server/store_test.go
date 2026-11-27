@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"itter-cli/internal/pqc"
+	"github.com/rrmn/itter-client/internal/pqc"
 )
 
 // TestStoreConformance runs the same checks against every Store.

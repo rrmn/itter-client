@@ -13,9 +13,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"itter-cli/internal/gatetest"
-	"itter-cli/internal/relay"
-	"itter-cli/internal/server"
+	"github.com/rrmn/itter-client/internal/gatetest"
+	"github.com/rrmn/itter-client/internal/relay"
+	"github.com/rrmn/itter-client/internal/server"
 )
 
 // world is a relay that can only be reached through a gate, like the one

@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/pqc"
-	"itter-cli/internal/relay"
-	"itter-cli/internal/vault"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/pqc"
+	"github.com/rrmn/itter-client/internal/relay"
+	"github.com/rrmn/itter-client/internal/vault"
 )
 
 // second gives an account another device: its own state directory, the same

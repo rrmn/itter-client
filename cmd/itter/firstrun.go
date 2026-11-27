@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/term"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/vault"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/vault"
 )
 
 // The first time someone runs `itter`, there is nothing to learn first: it
@@ -89,6 +89,38 @@ func firstRun(in io.Reader, out io.Writer) error {
 
 	// A setup that was interrupted: finish it, nothing to ask.
 	if vault.Exists(dir) {
+		return setUpDMs(p, out, "")
+	}
+
+	fmt.Fprintln(out, "itter DMs: private messages between itter accounts, encrypted on your own device.")
+	fmt.Fprintln(out, "This device is not set up yet. That takes a minute, and the SSH key you log in to itter with.")
+	fmt.Fprintln(out)
+	name, err := p.line("Your itter username", guessUsername())
+	if err != nil {
+		return err
+	}
+	name = stripAt(name)
+	if !api.ValidUsername(name) {
+		return userErrf("%q is not a valid itter username — run `itter` again", name)
+	}
+
+	if err := setUpDMs(p, out, name); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "When you talk to someone, compare safety numbers with them (/sn in a chat):")
+	fmt.Fprintln(out, "that comparison is what proves who you are talking to.")
+	fmt.Fprintln(out)
+	_, _ = p.line("Press Enter to open the chat", "")
+	return nil
+}
+
+// setUpDMs sets this device up for name's DMs: as the account's first
+// device, or, if the account already uses DMs elsewhere, linked to it (after
+// asking). A setup that was interrupted is finished instead, for the account
+// it was for.
+func setUpDMs(p *prompter, out io.Writer, name string) error {
+	dir := configDir()
+	if vault.Exists(dir) {
 		v, err := vault.Open(dir)
 		if err != nil {
 			return err
@@ -105,20 +137,7 @@ func firstRun(in io.Reader, out io.Writer) error {
 		_, err = setupDevice(me)
 		return err
 	}
-
-	fmt.Fprintln(out, "itter DMs: private messages between itter accounts, encrypted on your own device.")
-	fmt.Fprintln(out, "This device is not set up yet. That takes a minute, and the SSH key you log in to itter with.")
-	fmt.Fprintln(out)
-	name, err := p.line("Your itter username", guessUsername())
-	if err != nil {
-		return err
-	}
-	name = stripAt(name)
-	if !api.ValidUsername(name) {
-		return userErrf("%q is not a valid itter username — run `itter` again", name)
-	}
-
-	_, err = setupDevice(name)
+	_, err := setupDevice(name)
 	var taken *alreadySetUp
 	if errors.As(err, &taken) {
 		fmt.Fprintf(out, "\n@%s already uses DMs on another device.\n", name)
@@ -131,12 +150,5 @@ func firstRun(in io.Reader, out io.Writer) error {
 		}
 		err = linkDevice(dir, rc, name)
 	}
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(out, "When you talk to someone, compare safety numbers with them (/sn in a chat):")
-	fmt.Fprintln(out, "that comparison is what proves who you are talking to.")
-	fmt.Fprintln(out)
-	_, _ = p.line("Press Enter to open the chat", "")
-	return nil
+	return err
 }

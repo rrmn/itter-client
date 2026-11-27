@@ -14,8 +14,8 @@ import (
 	"sync"
 	"testing"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/relay"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/relay"
 )
 
 // What goes over the wire, seen from the wire: the tests here record every

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"itter-cli/internal/pqc"
+	"github.com/rrmn/itter-client/internal/pqc"
 )
 
 var errNotFound = errors.New("not found")

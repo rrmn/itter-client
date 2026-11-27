@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"itter-cli/internal/pqc"
+	"github.com/rrmn/itter-client/internal/pqc"
 )
 
 const (

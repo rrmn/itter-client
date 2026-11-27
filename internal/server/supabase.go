@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"itter-cli/internal/pqc"
+	"github.com/rrmn/itter-client/internal/pqc"
 )
 
 // SupabaseStore talks to PostgREST with the service-role key. The dm_* tables

@@ -11,7 +11,7 @@ import (
 
 	"github.com/zalando/go-keyring"
 
-	"itter-cli/internal/pqc"
+	"github.com/rrmn/itter-client/internal/pqc"
 )
 
 func TestMain(m *testing.M) {

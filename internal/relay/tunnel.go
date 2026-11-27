@@ -18,7 +18,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"itter-cli/internal/api"
+	"github.com/rrmn/itter-client/internal/api"
 )
 
 // The relay can be reached through itter's own SSH port, so nobody needs a
@@ -203,6 +203,63 @@ func (t *Tunnel) client(ctx context.Context) (cli *ssh.Client, fresh bool, err e
 		t.drop(cli)
 	}()
 	return cli, true, nil
+}
+
+// AuthError means itter's SSH server did not let a user in with the keys
+// offered. Banner is what the server said about it, if anything.
+type AuthError struct {
+	User   string
+	Banner string
+}
+
+func (e *AuthError) Error() string {
+	if b := strings.TrimSpace(e.Banner); b != "" {
+		return b
+	}
+	return "itter did not accept the SSH key(s) for " + e.User
+}
+
+// Login connects to itter's SSH server as an itter user, with the same host
+// key check as the DM pipe. It is how the program shows itter itself.
+// clientVersion lets itter recognise the program.
+func (t *Tunnel) Login(ctx context.Context, user, clientVersion string, auth ...ssh.AuthMethod) (*ssh.Client, error) {
+	conn, err := (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", t.Addr)
+	if err != nil {
+		return nil, err
+	}
+	var hostErr error
+	var banner strings.Builder
+	cfg := &ssh.ClientConfig{
+		User:              user,
+		Auth:              auth,
+		HostKeyCallback:   t.checkHostKey(&hostErr),
+		HostKeyAlgorithms: t.pinnedAlgorithms(),
+		ClientVersion:     clientVersion,
+		BannerCallback: func(msg string) error {
+			if banner.Len() < 4096 {
+				banner.WriteString(msg)
+			}
+			return nil
+		},
+	}
+	// Signing can wait for a person (a key's passphrase, a password
+	// manager's prompt), so the handshake gets a few minutes.
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Minute))
+	cc, chans, reqs, err := ssh.NewClientConn(conn, t.Addr, cfg)
+	if err != nil {
+		conn.Close()
+		switch {
+		case hostErr != nil:
+			return nil, hostErr
+		case strings.Contains(err.Error(), "unable to authenticate"), banner.Len() > 0:
+			// itter turns logins away by refusing the keys, or with a word
+			// of explanation (a banner) and a disconnect.
+			return nil, &AuthError{User: user, Banner: banner.String()}
+		}
+		return nil, err
+	}
+	_ = conn.SetDeadline(time.Time{})
+	return ssh.NewClient(cc, chans, reqs), nil
 }
 
 // --- the server's host key ---

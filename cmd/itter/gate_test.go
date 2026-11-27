@@ -15,10 +15,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"itter-cli/internal/gatetest"
-	"itter-cli/internal/relay"
-	"itter-cli/internal/server"
-	"itter-cli/internal/vault"
+	"github.com/rrmn/itter-client/internal/gatetest"
+	"github.com/rrmn/itter-client/internal/relay"
+	"github.com/rrmn/itter-client/internal/server"
+	"github.com/rrmn/itter-client/internal/vault"
 )
 
 // gateWorld is how things are deployed: the relay listens for itter's SSH

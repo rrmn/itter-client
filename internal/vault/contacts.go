@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"itter-cli/internal/pqc"
+	"github.com/rrmn/itter-client/internal/pqc"
 )
 
 // Contact is what this device knows about a peer's identity. Trust belongs

@@ -25,8 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rrmn/itter-client/internal/pqc"
 	"github.com/zalando/go-keyring"
-	"itter-cli/internal/pqc"
 )
 
 const (

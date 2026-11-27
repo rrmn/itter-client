@@ -17,7 +17,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"itter-cli/internal/relay"
+	"github.com/rrmn/itter-client/internal/relay"
 )
 
 // Gate is a running stand-in. Its exported fields may be changed while it

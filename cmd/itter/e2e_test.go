@@ -23,11 +23,11 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/pqc"
-	"itter-cli/internal/relay"
-	"itter-cli/internal/server"
-	"itter-cli/internal/vault"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/pqc"
+	"github.com/rrmn/itter-client/internal/relay"
+	"github.com/rrmn/itter-client/internal/server"
+	"github.com/rrmn/itter-client/internal/vault"
 )
 
 // End-to-end tests: the real CLI code paths for several users talking through

@@ -288,6 +288,25 @@ keychain, or in `vault.key` when `ITTER_KEYFILE=1`).
   and pair of accounts), the public bundle never contains one. Per-address
   (IPv6: per /64) and per-sender rate limits.
 
+## The itter view and releases
+
+The program shows itter's own SSH session (`itter`), logged in with the
+account's SSH key, and passes it through untouched. It tells itter that it is
+the program in its SSH version string (`SSH-2.0-itterclient_<version>`), and
+itter answers its `dm` command with `ESC ] 7777 ; itter-client ; dm [;@user] BEL`
+instead of text; the program takes that out of the stream and opens the DMs.
+Nothing about the DMs goes to itter: they keep travelling encrypted through
+the relay, as above. A server that sends the marker can only make the program
+open the DM view, nothing else.
+
+Releases are signed: `SHA256SUMS` (which lists the archives, `VERSION` and
+`install.sh`) carries a composite signature (Ed25519 + ML-DSA-87 + SLH-DSA)
+made with the release key, under the context `itter/v2/sig/release`. The
+program carries the public half and `itter update` installs nothing that does
+not verify, nor anything older than what it is. The private half stays on the
+maintainer's computer, sealed with a passphrase (Argon2id, AES-256-GCM). The
+first download is trust on first use (see the README for checking it).
+
 ## Known limits
 
 * The SSH-key binding is classical. Under this threat model, someone who can

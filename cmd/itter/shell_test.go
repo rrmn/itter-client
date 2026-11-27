@@ -10,9 +10,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/relay"
-	"itter-cli/internal/vault"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/relay"
+	"github.com/rrmn/itter-client/internal/vault"
 )
 
 // The shell is tested without a terminal: lines are "typed" into the model

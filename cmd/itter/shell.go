@@ -10,10 +10,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/pqc"
-	"itter-cli/internal/relay"
-	"itter-cli/internal/vault"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/pqc"
+	"github.com/rrmn/itter-client/internal/relay"
+	"github.com/rrmn/itter-client/internal/vault"
 )
 
 const shellHelp = `In a chat, whatever you type is sent. Commands start with a slash:
@@ -30,7 +30,7 @@ const shellHelp = `In a chat, whatever you type is sent. Commands start with a s
   /approve <code>    let a new device in (the code "itter link" shows there)
   /unlink <id>       remove a linked device
   /clear             clear this view (messages stay stored)
-  /exit              quit (also Esc or Ctrl+C)
+  /exit              leave (also Esc, Ctrl+C or Ctrl+])
 Outside a chat, "@user hello" sends and "@user" opens the chat.
 Tab completes commands and names. PgUp/PgDn and the arrow keys scroll.
 To send a line that starts with "/", type "//".`
@@ -82,6 +82,8 @@ type appModel struct {
 	sending []sendReq        // on their way
 	nextID  int
 	sendCh  chan sendReq // strictly ordered sends
+
+	embedded bool // shown inside the itter view: leaving goes back to itter
 }
 
 func newModel(a *app) appModel {
@@ -208,7 +210,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.shown()
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyCtrlC, tea.KeyEsc, tea.KeyCtrlCloseBracket:
 			return m, tea.Quit
 		case tea.KeyPgUp:
 			m.scroll += max(1, m.height-4)
@@ -574,9 +576,16 @@ func (m appModel) statusLine() string {
 		return FgCyan + u + Reset
 	}
 	if m.filter == "" {
-		return FgBrightBlk + "@user hello to write · /chat @user to open a chat · /help · Esc quits" + Reset
+		return FgBrightBlk + "@user hello to write · /chat @user to open a chat · /help · " + m.leaveHint() + Reset
 	}
-	return FgBrightBlk + "/help · /chat all · Tab completes · Esc quits" + Reset
+	return FgBrightBlk + "/help · /chat all · Tab completes · " + m.leaveHint() + Reset
+}
+
+func (m appModel) leaveHint() string {
+	if m.embedded {
+		return "Esc: back to itter"
+	}
+	return "Esc quits"
 }
 
 func (m appModel) View() string {

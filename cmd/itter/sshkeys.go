@@ -15,8 +15,8 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/relay"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/relay"
 )
 
 // Setting up (or linking) a device takes one signature from an SSH key of
@@ -53,6 +53,11 @@ type accountKeys struct {
 	locked []ssh.Signer // files that ask for their passphrase when first used
 	sawRSA bool         // RSA keys were found (and skipped)
 	looked []string     // where we looked, for the error message
+}
+
+// all is every key found, the ones free to use first.
+func (ks *accountKeys) all() []ssh.Signer {
+	return append(append([]ssh.Signer{}, ks.ready...), ks.locked...)
 }
 
 func tilde(path string) string {

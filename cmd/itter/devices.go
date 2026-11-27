@@ -10,10 +10,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/pqc"
-	"itter-cli/internal/relay"
-	"itter-cli/internal/vault"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/pqc"
+	"github.com/rrmn/itter-client/internal/relay"
+	"github.com/rrmn/itter-client/internal/vault"
 )
 
 // An account's first device holds the account identity. Further devices are

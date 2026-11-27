@@ -7,3 +7,7 @@ server-check.command
 doorlinks-fetch.command
 golive.command
 itter-golive.command
+_release/
+/itter
+/itter-relay
+/bin/

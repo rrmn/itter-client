@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"itter-cli/internal/server"
+	"github.com/rrmn/itter-client/internal/server"
 )
 
 func main() {

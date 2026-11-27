@@ -4,7 +4,7 @@ import (
 	"crypto/mlkem"
 	"errors"
 
-	"itter-cli/internal/pqc/frodo"
+	"github.com/rrmn/itter-client/internal/pqc/frodo"
 )
 
 // kemScheme abstracts the post-quantum KEMs. Decapsulation keys are kept in

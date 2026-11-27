@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"itter-cli/internal/api"
+	"github.com/rrmn/itter-client/internal/api"
 )
 
 // FuzzSessionHeaders: whatever stands in the headers that authenticate a

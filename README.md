@@ -1,20 +1,32 @@
-# itter-cli — private DMs for itter
+# itter-client — itter in your terminal, with private messages
 
-End-to-end encrypted direct messages for [itter](https://github.com/rrmn/itter)
-accounts. Messages are protected by a Triple Ratchet (Signal's Double Ratchet
-plus two sparse post-quantum ratchets) built so that it still holds if RSA,
-elliptic curves **and** structured lattices are all broken: the load-bearing
-parts are FrodoKEM, SLH-DSA and symmetric crypto. No RSA anywhere.
+`itter` is [itter](https://github.com/rrmn/itter) as you know it from `ssh`,
+plus **direct messages that only you and the people you write to can read**:
+end-to-end encrypted on your own computer, and post-quantum. Messages are
+protected by a Triple Ratchet (Signal's Double Ratchet plus two sparse
+post-quantum ratchets) built so that it still holds if RSA, elliptic curves
+**and** structured lattices are all broken: the load-bearing parts are
+FrodoKEM, SLH-DSA and symmetric crypto. No RSA anywhere.
 [PROTOCOL.md](PROTOCOL.md) has the details and the known limits.
 
-Two programs: `itter` (the client, which everybody runs on their own
-computer) and `itter-relay` (stores and forwards ciphertext; never sees
-plaintext). The relay sits next to itter's SSH app and is reached **through
-itter's own SSH port**, so users need no second address.
+## Install
 
-DMs cannot live inside the SSH app itself: whatever is typed into an SSH
-session passes through the server in the clear. The keys have to stay on the
-user's device, which is what the client is for.
+```sh
+curl -fsSL https://github.com/rrmn/itter-client/releases/latest/download/install.sh | sh
+```
+
+macOS and Linux, Apple silicon / ARM and Intel / AMD. No sudo: it puts `itter`
+in a folder on your PATH (and says so if it has to add one).
+
+Later updates: `itter update`. It installs a release only if it is signed
+with itter's **release key**, which is post-quantum too (Ed25519 + ML-DSA-87 +
+SLH-DSA): not GitHub, not HTTPS, nobody in between can slip in another
+program. `itter version` shows the key's fingerprint; it must be
+
+    6272 705b 6200 d258 80dd 12c9 7db1 911b
+
+Only the very first download is taken on trust. To check it yourself, see
+[Checking a release](#checking-a-release).
 
 ## Using it
 
@@ -22,14 +34,24 @@ user's device, which is what the client is for.
 itter
 ```
 
-That is all. The first time, it asks for your itter username and sets this
-device up, with the SSH key you log in to itter with (from ssh-agent, or from
-`~/.ssh/id_ed25519` / `id_ecdsa`; RSA keys are refused). The key is needed
-this once, to show that the account is yours. Setup prints a **recovery
-code**. Write it down: it is the only way to free your account if this device
-is lost.
+The first time, it asks for your itter username (a new one signs you up) and
+logs in with the SSH key you use for itter: from ssh-agent, or
+`~/.ssh/id_ed25519` / `id_ecdsa` (RSA keys are refused). From then on it *is*
+itter: everything works as over `ssh`.
 
-**More devices.** Run `itter` on the new device and give the same username. It
+**Your DMs:** type `dm` (or `dm @user`), or press **Ctrl-]**. **Esc** brings
+you back to itter, which kept going meanwhile. New DMs show in the terminal's
+title. The first time, `dm` sets this computer up for DMs, with one more
+signature from your SSH key, which shows the DM relay that the account is
+yours. Setup prints a **recovery code**. Write it down: it is the only way to
+free your account if this computer is lost.
+
+`itter dms` opens just the DMs. With plain `ssh`, itter's `dm` tells you how
+to get this program: DMs cannot live inside the SSH app itself, because
+whatever is typed into an SSH session passes through the server in the clear.
+The keys have to stay on your computer, which is what this program is for.
+
+**More devices.** Run `itter` on the new device, log in, and type `dm`. It
 notices that the account already uses DMs, offers to add the device, and shows
 a one-time code. Type that code on your first device:
 
@@ -46,7 +68,7 @@ device, and contacts you verified have to be verified there again. Unlink
 devices you no longer use: as long as a device is listed, everything is also
 encrypted for it.
 
-In the shell, `@user hello` writes to someone, `/chat @user` opens a chat
+In the DMs, `@user hello` writes to someone, `/chat @user` opens a chat
 (then everything you type is sent), Tab completes commands and names, `/help`
 lists the rest. One-shot commands for scripts and quick use:
 
@@ -65,6 +87,9 @@ lists the rest. One-shot commands for scripts and quick use:
 | `itter recovery-code` | show the recovery code again (first device) |
 | `itter recover <username>` | first device lost: free the account with the code |
 | `itter burn` | wipe this device; on the first device this also releases your identity |
+| `itter dms` | open just the DMs |
+| `itter version` | this program's version and release key |
+| `itter update` | install the newest release (`--check` only looks) |
 
 **Safety numbers.** The relay tells you which identity belongs to an account;
 the first one is taken on trust. To be sure nobody sits in the middle, compare
@@ -85,13 +110,32 @@ told.
 Environment: `ITTER_HOST` (itter's SSH server, default `app.itter.sh:22`),
 `ITTER_KEY` (the SSH key of your itter account, if it is neither in ssh-agent
 nor in the usual files), `ITTER_DIR` (state directory, default
-`~/.itter-cli`), `ITTER_KEYFILE=1` (keep the vault key in a file — for
-machines without a system keychain), `NO_COLOR`. `ITTER_RELAY` makes the
+`~/.itter`), `ITTER_KEYFILE=1` (keep the vault key in a file — for
+machines without a system keychain), `ITTER_BELL=0` (no bell when a DM
+arrives), `NO_COLOR`. `ITTER_RELAY` makes the
 client talk to a relay directly at an http(s) address instead of going
 through itter (plain http is refused except for localhost).
 
 `itter setup <username>` and `itter link <username>` do by hand what the first
-run does by itself; scripts use them.
+`dm` does by itself; scripts use them.
+
+## Checking a release
+
+Every release has `SHA256SUMS`, signed in `SHA256SUMS.sig` with the release
+key, whose public half is [`release-key.pub`](release-key.pub) here (and built
+into the program). To check a release without trusting the program you
+downloaded, with Go 1.27.1 and this repository at the release's tag:
+
+```sh
+go run ./cmd/itter-release verify release-key.pub SHA256SUMS   # next to SHA256SUMS.sig
+scripts/build-release.sh v1.2.3 <the tag's commit> out/        # builds it again
+diff out/SHA256SUMS SHA256SUMS                                 # same files, byte for byte
+```
+
+Builds are reproducible: the same source and Go version give the same files.
+The fingerprint above, compared with what someone else sees (on the itter
+website, from a friend), makes sure `release-key.pub` is the right key.
+
 
 ## Running a relay
 
@@ -181,7 +225,7 @@ device and the recovery code.
 ## Building and testing
 
 ```sh
-go build -o bin/ ./cmd/...                  # Go 1.27+; gives bin/itter and bin/itter-relay
+go build -o bin/ ./cmd/...                  # Go 1.27+; bin/itter, bin/itter-relay, bin/itter-release
 go test ./...                               # a few minutes; includes the FrodoKEM KATs
 go test ./internal/pqc -run '^$' -fuzz FuzzDecrypt -fuzztime 60s -fuzzminimizetime 2s
 ```

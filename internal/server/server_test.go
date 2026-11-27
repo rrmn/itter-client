@@ -23,9 +23,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/pqc"
-	"itter-cli/internal/relay"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/pqc"
+	"github.com/rrmn/itter-client/internal/relay"
 )
 
 // --- fixtures (identities are slow to make: SLH-DSA) ---

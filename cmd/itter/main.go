@@ -18,20 +18,24 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 
-	"itter-cli/internal/api"
-	"itter-cli/internal/pqc"
-	"itter-cli/internal/relay"
-	"itter-cli/internal/vault"
+	"github.com/rrmn/itter-client/internal/api"
+	"github.com/rrmn/itter-client/internal/pqc"
+	"github.com/rrmn/itter-client/internal/relay"
+	"github.com/rrmn/itter-client/internal/vault"
 )
 
-const usage = `itter — private direct messages, post-quantum end to end
+const usage = `itter — itter in your terminal, with private messages
 
-Messages are protected by a Triple Ratchet: Signal's Double Ratchet (X25519)
-running in parallel with two sparse post-quantum ratchets (ML-KEM-768 and
-FrodoKEM-976). Identities sign with Ed25519 + ML-DSA-87 + SLH-DSA. No RSA.
+` + "`itter`" + ` shows itter the way ssh would, logged in with your SSH key. In there,
+type dm (or press Ctrl-]) for your direct messages, and Esc to come back.
+
+DMs are end-to-end encrypted on this device, and post-quantum: a Triple
+Ratchet (Signal's Double Ratchet with X25519, plus ML-KEM-768 and FrodoKEM-976
+ratchets), identities signed with Ed25519 + ML-DSA-87 + SLH-DSA. No RSA.
 
 everyday:
-  itter                        open the live shell (type /help inside)
+  itter                        open itter (dm inside opens your DMs)
+  itter dms                    open just your DMs (type /help inside)
   itter dm @<user> <msg>       send one message and exit
   itter read [@<user>] [n]     fetch new messages; with @user show the last n
   itter contacts               who you talk to, and whether they are verified
@@ -60,24 +64,35 @@ account and devices:
   itter burn [--force]         wipe this device; on the first device this also
                                releases the account's identity
 
-The first time you run itter it sets this device up, with the SSH key you
-log in to itter with. DMs travel through itter's own SSH port.
+The first time you open your DMs, itter sets this device up for them, with
+the SSH key you log in to itter with. DMs travel through itter's own SSH port.
+
+this program:
+  itter version                its version, and the release key it trusts
+  itter update [--check]       install the newest release (only if it is
+                               signed with that key)
 
 env:
   ITTER_HOST    itter's SSH server (default app.itter.sh:22)
   ITTER_KEY     the SSH key of your itter account, if it is not in ssh-agent
                 or ~/.ssh/id_ed25519
-  ITTER_DIR     state directory (default ~/.itter-cli)
+  ITTER_DIR     state directory (default ~/.itter)
   ITTER_RELAY   talk to a relay directly at this http(s) address instead
 `
 
 func main() {
 	if len(os.Args) < 2 {
-		os.Exit(report(cmdShell()))
+		os.Exit(report(cmdItter()))
 	}
 	args := os.Args[2:]
 	var err error
 	switch os.Args[1] {
+	case "dms":
+		err = cmdShell()
+	case "version", "--version", "-v":
+		err = cmdVersion()
+	case "update":
+		err = cmdUpdate(args)
 	case "setup":
 		err = cmdSetup(args)
 	case "burn":
@@ -149,7 +164,18 @@ func configDir() string {
 		return d
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".itter-cli")
+	dir := filepath.Join(home, ".itter")
+	// Devices set up before the program was called itter-client keep their
+	// state where it was.
+	if old := filepath.Join(home, ".itter-cli"); !exists(dir) && exists(old) {
+		return old
+	}
+	return dir
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // defaultHost is where itter's SSH server is found when ITTER_HOST does not
@@ -189,6 +215,17 @@ func newRelay() (*relay.Client, error) {
 		}
 		return relay.New(base), nil
 	}
+	t, err := itterTunnel()
+	if err != nil {
+		return nil, err
+	}
+	return relay.NewSSH(t), nil
+}
+
+// itterTunnel is the way to itter's SSH server, with its host key check:
+// the one on record for this device, else the user's own known_hosts, else
+// trust on first use.
+func itterTunnel() (*relay.Tunnel, error) {
 	addr, err := itterHost()
 	if err != nil {
 		return nil, err
@@ -197,7 +234,7 @@ func newRelay() (*relay.Client, error) {
 	if home, err := os.UserHomeDir(); err == nil {
 		t.KnownHosts = []string{filepath.Join(home, ".ssh", "known_hosts")}
 	}
-	return relay.NewSSH(t), nil
+	return t, nil
 }
 
 // relayURL returns the relay ITTER_RELAY names. Plain http is only accepted
