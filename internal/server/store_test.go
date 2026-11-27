@@ -26,7 +26,7 @@ import (
 func TestStoreConformance(t *testing.T) {
 	t.Run("memory", func(t *testing.T) {
 		ms := NewMemStore()
-		ms.AddUser("DmTest_Ab1", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== test")
+		ms.AddUser("DmTest_Ab1", testSSHKey)
 		ms.AddUser("dmtestxab1")
 		conformance(t, ms, "DmTest_Ab1", "dmtestxab1")
 	})
@@ -39,24 +39,43 @@ func TestStoreConformance(t *testing.T) {
 		rnd := make([]byte, 3)
 		rand.Read(rnd)
 		a, b := "DmTest_"+hex.EncodeToString(rnd), "dmtestx"+hex.EncodeToString(rnd)
+		// One cleanup for both users, in an order that works whatever the
+		// test left behind: what refers to the users first, the users last.
+		// Whatever cannot be removed is reported, so that it can be done by hand.
+		var ids []string
+		t.Cleanup(func() {
+			for _, id := range ids {
+				_ = st.DeleteIdentity(id)
+				for _, path := range []string{"/ignored_users?ignorer_id=eq.", "/ignored_users?ignored_user_id=eq.", "/user_public_keys?user_id=eq."} {
+					if err := st.req("DELETE", path+q(id), nil, "return=minimal", nil); err != nil {
+						t.Errorf("cleanup %s%s: %v", path, id, err)
+					}
+				}
+			}
+			for _, id := range ids {
+				if err := st.req("DELETE", "/users?id=eq."+q(id), nil, "return=minimal", nil); err != nil {
+					t.Errorf("cleanup: test user %s is still there: %v", id, err)
+				}
+			}
+		})
 		for _, name := range []string{a, b} {
 			var rows []struct {
 				ID string `json:"id"`
 			}
-			// itter's users table still requires the (legacy) public_key column.
-			row := map[string]string{"username": name, "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== " + name}
+			// itter's users table still requires the (legacy) public_key column:
+			// a gets its one key there too, b a key of its own.
+			legacy := testSSHKey
+			if name != a {
+				legacy = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== " + name
+			}
+			row := map[string]string{"username": name, "public_key": legacy}
 			if err := st.req("POST", "/users?select=id", row, "return=representation", &rows); err != nil || len(rows) != 1 {
 				t.Fatalf("create test user %s: %v", name, err)
 			}
 			id := rows[0].ID
-			t.Cleanup(func() {
-				_ = st.DeleteIdentity(id)
-				_ = st.req("DELETE", "/ignored_users?ignorer_id=eq."+q(id), nil, "return=minimal", nil)
-				_ = st.req("DELETE", "/user_public_keys?user_id=eq."+q(id), nil, "return=minimal", nil)
-				_ = st.req("DELETE", "/users?id=eq."+q(id), nil, "return=minimal", nil)
-			})
+			ids = append(ids, id)
 			if name == a {
-				row := map[string]string{"user_id": id, "name": "dmtest", "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== test"}
+				row := map[string]string{"user_id": id, "name": "dmtest", "public_key": testSSHKey}
 				if err := st.req("POST", "/user_public_keys", row, "return=minimal", nil); err != nil {
 					t.Fatalf("add test key: %v", err)
 				}
@@ -65,6 +84,8 @@ func TestStoreConformance(t *testing.T) {
 		conformance(t, st, a, b)
 	})
 }
+
+const testSSHKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== test"
 
 func prekey(id uint32) *pqc.PreKeyPublic {
 	return &pqc.PreKeyPublic{ID: id, DH: bytes.Repeat([]byte{1}, 32), MLKEM: []byte("mlkem"), Frodo: []byte("frodo")}
@@ -87,8 +108,16 @@ func conformance(t *testing.T, st Store, a, b string) {
 	if _, err := st.User("no_such_user_x"); err != errNotFound {
 		t.Fatalf("unknown user: %v", err)
 	}
-	if keys, err := st.SSHKeys(ua.ID); err != nil || len(keys) != 1 {
+	// Keys come from user_public_keys and, for accounts from before itter had
+	// several keys, from users.public_key: the same key may be listed twice.
+	keys, err := st.SSHKeys(ua.ID)
+	if err != nil || len(keys) == 0 {
 		t.Fatalf("SSHKeys = %v, %v", keys, err)
+	}
+	for _, k := range keys {
+		if k != testSSHKey {
+			t.Fatalf("SSHKeys = %v: not only the test key", keys)
+		}
 	}
 
 	// identities: first writer wins, and the first device comes with it
