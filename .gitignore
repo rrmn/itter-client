@@ -6,3 +6,4 @@ _deploy/
 server-check.command
 doorlinks-fetch.command
 golive.command
+itter-golive.command

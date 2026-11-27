@@ -43,7 +43,9 @@ func TestStoreConformance(t *testing.T) {
 			var rows []struct {
 				ID string `json:"id"`
 			}
-			if err := st.req("POST", "/users?select=id", map[string]string{"username": name}, "return=representation", &rows); err != nil || len(rows) != 1 {
+			// itter's users table still requires the (legacy) public_key column.
+			row := map[string]string{"username": name, "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== " + name}
+			if err := st.req("POST", "/users?select=id", row, "return=representation", &rows); err != nil || len(rows) != 1 {
 				t.Fatalf("create test user %s: %v", name, err)
 			}
 			id := rows[0].ID
