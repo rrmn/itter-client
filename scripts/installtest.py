@@ -257,10 +257,10 @@ def main():
     w = world()
     code, out = run(w.installer(), w.env, tty=True)
     check(code == 0, "exit 0", out)
-    check("Installing itter for %s from %s/releases ..." % (host_plat, base) in out, "says what it installs, from where", out)
-    check("Installed itter v9.9.9 in ~/.local/bin." in out, "says where it put itter", out)
-    check("Added ~/.local/bin to your PATH in ~/.zshrc." in out, "says it added the folder to the PATH", out)
-    check("Starting itter. Next time, open a new terminal and type: itter" in out, "says how to start it next time", out)
+    check("Getting itter for %s from %s/releases..." % (host_plat, base) in out, "says what it installs, from where", out)
+    check("Got itter v9.9.9! It lives in ~/.local/bin now." in out, "says where it put itter", out)
+    check("Added ~/.local/bin to your PATH (in ~/.zshrc)." in out, "says it added the folder to the PATH", out)
+    check("Here we go! Next time, open a new terminal and type: itter" in out, "says how to start it next time", out)
     check("STUB STARTED stdin_tty=true stdout_tty=true" in out, "starts itter, on the terminal", out)
     check(os.access(os.path.join(w.local_bin, "itter"), os.X_OK), "~/.local/bin/itter is there and runs")
     zshrc = w.read(".zshrc") or ""
@@ -293,7 +293,7 @@ def main():
     w.env["ITTER_PATH"] = "0"
     code, out = run(w.installer(), w.env, tty=True)
     check(code == 0, "exit 0", out)
-    check("~/.local/bin is not on your PATH." in out, "says the folder is not on the PATH", out)
+    check("~/.local/bin isn't on your PATH." in out, "says the folder is not on the PATH", out)
     check("Next time, type: %s/itter" % w.local_bin in out, "says the full path to type", out)
     check(w.read(".zshrc") is None and w.read(".profile") is None, "no startup file written")
     check("STUB STARTED" in out, "still starts itter (by its full path)", out)
@@ -309,7 +309,7 @@ def main():
     print("7. bash user on this computer: ~/" + bash_rc)
     w = world(shell="/bin/bash")
     code, out = run(w.installer(), w.env, tty=False)
-    check(("Added ~/.local/bin to your PATH in ~/%s." % bash_rc) in out, "says ~/" + bash_rc, out)
+    check(("Added ~/.local/bin to your PATH (in ~/%s)." % bash_rc) in out, "says ~/" + bash_rc, out)
     check('export PATH="$HOME/.local/bin:$PATH"' in (w.read(bash_rc) or ""), bash_rc + " has the line")
 
     print("8. bash user on a Mac: the login file bash reads")
@@ -317,12 +317,12 @@ def main():
     with open(os.path.join(w.home, ".profile"), "w") as f:
         f.write("# mine\n")
     code, out = run(w.installer(), w.env, tty=False)
-    check("Installing itter for macOS (Apple silicon)" in out, "macOS (Apple silicon)", out)
-    check("Added ~/.local/bin to your PATH in ~/.profile." in out, "uses the existing ~/.profile", out)
+    check("Getting itter for macOS (Apple silicon)" in out, "macOS (Apple silicon)", out)
+    check("Added ~/.local/bin to your PATH (in ~/.profile)." in out, "uses the existing ~/.profile", out)
     check(w.read(".bash_profile") is None, "does not create ~/.bash_profile (it would hide ~/.profile)")
     w = world(shell="/bin/bash", mac=("arm64", True))
     code, out = run(w.installer(), w.env, tty=False)
-    check("in ~/.bash_profile." in out and w.read(".bash_profile"), "creates ~/.bash_profile when there is none", out)
+    check("(in ~/.bash_profile)." in out and w.read(".bash_profile"), "creates ~/.bash_profile when there is none", out)
 
     print("9. fish user")
     w = world(shell="/usr/bin/fish")
@@ -333,13 +333,13 @@ def main():
     print("10. sh user, and zsh with ZDOTDIR")
     w = world(shell="/bin/sh")
     code, out = run(w.installer(), w.env, tty=False)
-    check("in ~/.profile." in out and w.read(".profile"), "~/.profile", out)
+    check("(in ~/.profile)." in out and w.read(".profile"), "~/.profile", out)
     w = world()
     zd = os.path.join(w.home, ".config", "zsh")
     os.makedirs(zd)
     w.env["ZDOTDIR"] = zd
     code, out = run(w.installer(), w.env, tty=False)
-    check("in ~/.config/zsh/.zshrc." in out and w.read(".config/zsh/.zshrc"), "$ZDOTDIR/.zshrc", out)
+    check("(in ~/.config/zsh/.zshrc)." in out and w.read(".config/zsh/.zshrc"), "$ZDOTDIR/.zshrc", out)
 
     print("11. Macs: Intel, and Apple silicon behind Rosetta")
     w = world(mac=("x86_64", False))
@@ -353,7 +353,7 @@ def main():
     w = world()
     w.env["ITTER_VERSION"] = "vBAD"
     code, out = run(w.installer(), w.env, tty=True)
-    check(code != 0 and "does not match the release's checksum; nothing was installed" in out, "refuses", out)
+    check(code != 0 and "doesn't match the release's checksum. Nothing was installed." in out, "refuses", out)
     check(not os.path.exists(os.path.join(w.local_bin, "itter")), "nothing installed")
     check(w.read(".zshrc") is None, "no startup file written")
     check(w.tmp_empty(), "its temporary folder is gone")
@@ -362,7 +362,7 @@ def main():
     w = world()
     w.env["ITTER_VERSION"] = "vKEY"
     code, out = run(w.installer(), w.env, tty=False)
-    check("Note: this release has another release key" in out, "says so", out)
+    check("Heads up: this release has another release key" in out, "says so", out)
 
     print("14. replacing an itter that is running")
     w = world()
@@ -372,7 +372,7 @@ def main():
     running = subprocess.Popen([os.path.join(w.local_bin, "itter"), "sleep"])
     time.sleep(0.3)
     code, out = run(w.installer(), dict(w.env, ITTER_START="0"), tty=False)
-    check(code == 0 and "Installed itter v9.9.9" in out, "installs over it", out)
+    check(code == 0 and "Got itter v9.9.9" in out, "installs over it", out)
     check(running.poll() is None, "the running one keeps running")
     check(not os.path.exists(os.path.join(w.local_bin, ".itter.new")), "no leftover file")
     running.kill()
@@ -387,7 +387,7 @@ def main():
     if os.geteuid() == 0:
         print("  skip (running as root, every folder is writable)")
     else:
-        check(code != 0 and "cannot write to" in out, "refuses with a reason", out)
+        check(code != 0 and "Can't write to" in out, "refuses with a reason", out)
 
     print("16. | bash, | bash --posix, | sh")
     for sh in ("bash", "bash --posix", "sh"):
@@ -399,7 +399,7 @@ def main():
     for name in ("half.sh", "start.sh"):
         w = world()
         code, out = run(w.installer(url=base + "/" + name), w.env, tty=True)
-        check("Installing" not in out and not os.path.exists(w.local_bin), name + ": nothing ran", out)
+        check("Getting itter" not in out and not os.path.exists(w.local_bin), name + ": nothing ran", out)
 
     print("18. not macOS or Linux")
     w = world()
@@ -410,7 +410,7 @@ def main():
     os.chmod(os.path.join(fake, "uname"), 0o755)
     w.env["PATH"] = fake + ":" + w.env["PATH"]
     code, out = run(w.installer(), w.env, tty=False)
-    check(code != 0 and "there is no itter program for FreeBSD yet" in out, "says so", out)
+    check(code != 0 and "no itter for FreeBSD yet" in out, "says so", out)
 
     if args.release:
         print("19. a real release")
@@ -418,14 +418,14 @@ def main():
         w.env["ITTER_RELEASES"] = base + "/real"
         code, out = run(w.installer(), w.env, tty=False)
         version = open(os.path.join(args.release, "VERSION")).read().strip()
-        check(code == 0 and ("Installed itter %s in ~/.local/bin." % version) in out, "installs " + version, out)
-        check("Note:" not in out, "the release key is the one the script knows", out)
+        check(code == 0 and ("Got itter %s! It lives in ~/.local/bin now." % version) in out, "installs " + version, out)
+        check("Heads up" not in out, "the release key is the one the script knows", out)
         v = subprocess.run([os.path.join(w.local_bin, "itter"), "version"], capture_output=True, text=True).stdout
         check(KEY in v and version in v, "itter version: " + v.splitlines()[0] if v else "itter version", v)
         w = world()
         w.env["ITTER_RELEASES"] = base + "/real"
         code, out = run(w.installer(), w.env, tty=True, timeout=30, until="username", send="\x03")
-        check("Starting itter." in out and "Your itter username" in out, "starts itter, which asks for the username", out)
+        check("Here we go!" in out and "Your itter username" in out, "starts itter, which asks for the username", out)
 
     srv.shutdown()
     shutil.rmtree(work, ignore_errors=True)

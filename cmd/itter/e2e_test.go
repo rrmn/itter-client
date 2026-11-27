@@ -35,6 +35,10 @@ import (
 
 func TestMain(m *testing.M) {
 	keyring.MockInit()
+	// Never ask the real ssh (its ~/.ssh/config) or 1Password of whoever runs
+	// the tests; the tests that need them set their own.
+	sshConfig = func(host, port string) (sshSettings, bool) { return sshSettings{}, false }
+	onePasswordAgent = func() string { return "" }
 	os.Exit(m.Run())
 }
 
@@ -390,7 +394,7 @@ func TestSetup(t *testing.T) {
 			t.Fatal("the identity must be kept when the outcome of registration is unknown")
 		}
 		bob.use()
-		if _, err := open(); err == nil || !strings.Contains(err.Error(), "did not finish") {
+		if _, err := open(); err == nil || !strings.Contains(err.Error(), "didn't finish") {
 			t.Fatalf("an unfinished setup must not be usable: %v", err)
 		}
 		out, err := bob.setup() // the relay already has this identity: must simply complete
@@ -639,7 +643,7 @@ func TestConversation(t *testing.T) {
 		}
 		w.mem.AddUser("nodms")
 		_, err = a.send("nodms", "hello?")
-		if err == nil || !strings.Contains(err.Error(), "has not set up DMs") {
+		if err == nil || !strings.Contains(err.Error(), "doesn't have DMs yet") {
 			t.Fatalf("user without DMs: %v", err)
 		}
 		_, err = a.send("alice", "me?")
@@ -661,7 +665,7 @@ func TestConversation(t *testing.T) {
 		down := &flaky{match: func(r *http.Request) bool { return true }}
 		withNetwork(down, func() {
 			_, err = alice.app().send("carol", "first contact, offline")
-			if err == nil || !strings.Contains(err.Error(), "could not be queued") {
+			if err == nil || !strings.Contains(err.Error(), "couldn't be queued") {
 				t.Fatalf("offline first contact: %v", err)
 			}
 		})

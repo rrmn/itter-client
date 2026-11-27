@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"sync"
@@ -126,7 +125,7 @@ func (h *dmHub) setUp() bool {
 	out := os.Stdout
 	fmt.Fprint(out, "\x1b[?1049h\x1b[H\x1b[2J")
 	defer fmt.Fprint(out, "\x1b[?1049l")
-	p := &prompter{in: bufio.NewReader(os.Stdin), out: out}
+	p := newPrompter(os.Stdin, out)
 	back := func(err error) bool {
 		fmt.Fprintf(out, "\n%s\n\n", explainLocal(err))
 		_, _ = p.line("Press Enter to go back to itter", "")
@@ -145,20 +144,20 @@ func (h *dmHub) setUp() bool {
 		return back(err)
 	}
 	h.start(a)
-	fmt.Fprintln(out, "When you talk to someone, compare safety numbers with them (/sn in a chat):")
-	fmt.Fprintln(out, "that comparison is what proves who you are talking to.")
+	fmt.Fprintln(out, "Tip: compare safety numbers with the people you write to (/sn in a chat).")
+	fmt.Fprintln(out, "That's how you know it's really them.")
 	fmt.Fprintln(out)
 	_, _ = p.line("Press Enter to open your DMs", "")
 	return true
 }
 
-const dmIntro = `Direct messages
+const dmIntro = `DMs!
 
-DMs on itter are end-to-end encrypted: they are locked on this computer, and
-only the people you write to can unlock them. Not itter, not anyone else.
+DMs on itter are end-to-end encrypted: only you and the people you write to
+can read them. Not itter, not us, not anyone else.
 
-This computer is not set up for DMs yet. That takes a minute, and one
-signature with the SSH key you log in to itter with.
+This computer isn't set up for DMs yet. Takes a minute, and one signature
+with the SSH key you log in to itter with.
 
 `
 

@@ -90,6 +90,21 @@ func (e *userErr) Error() string { return e.msg }
 
 func userErrf(format string, args ...any) error { return &userErr{fmt.Sprintf(format, args...)} }
 
+// byeErr ends a command without anything having gone wrong: the person said
+// no, or Ctrl-C. It is shown as it is, not as an error.
+type byeErr struct{ msg string }
+
+func (e *byeErr) Error() string { return e.msg }
+
+// ended makes sure a message ends like a sentence, so more can follow it.
+func ended(s string) string {
+	s = strings.TrimRight(s, " ")
+	if s == "" || strings.HasSuffix(s, ".") || strings.HasSuffix(s, "!") || strings.HasSuffix(s, "?") {
+		return s
+	}
+	return s + "."
+}
+
 // explain turns any error into one line a user can act on.
 func explain(err error) string {
 	var ue *userErr
@@ -98,44 +113,44 @@ func explain(err error) string {
 	}
 	var hk *relay.HostKeyError
 	if errors.As(err, &hk) {
-		return fmt.Sprintf("itter's server at %s shows a different SSH host key (%s) than the one on record in %s. That happens when a server is moved or reinstalled, and it is also what someone in between looks like. Nothing was sent. If itter announced a new key, remove that line from the file and try again", hk.Addr, hk.Got, tilde(hk.Record))
+		return fmt.Sprintf("Whoa: itter's server at %s shows a different SSH host key (%s) than the one on record (in %s). That happens when the server moves, and it's also what someone in between looks like. Nothing was sent. If itter announced a new key, delete that line from the file and try again.", hk.Addr, hk.Got, tilde(hk.Record))
 	}
 	var ge *relay.GateError
 	if errors.As(err, &ge) {
 		return ge.Reason
 	}
 	if errors.Is(err, relay.ErrSessionAnswer) {
-		return "the relay's answer could not be used: it was damaged on the way, or it did not come from the relay. Nothing was sent — try again"
+		return "The relay's answer got damaged on the way (or didn't come from the relay). Nothing was sent. Try again?"
 	}
 	var he *relay.HTTPError
 	if !errors.As(err, &he) {
-		return fmt.Sprintf("can't reach the relay (%v)", err)
+		return fmt.Sprintf("Can't reach the DM relay (%v). Is the internet there?", err)
 	}
 	switch {
 	case he.Status == http.StatusUnauthorized && he.Body == api.ErrClockSkew:
 		if he.ServerTime != 0 {
 			if off := time.Since(time.Unix(he.ServerTime, 0)); off > time.Minute || off < -time.Minute {
-				return fmt.Sprintf("your clock is off by about %s — fix the system time and try again", off.Abs().Round(time.Minute))
+				return fmt.Sprintf("Your clock is off by about %s. Fix the time and try again.", off.Abs().Round(time.Minute))
 			}
 		}
-		return "the relay rejected the request because your clock is off — fix the system time and try again"
+		return "Your clock is off, so the relay said no. Fix the time and try again."
 	case he.Status == http.StatusUnauthorized && he.Body == api.ErrSessionGone:
 		// The client already tried once more with a new session.
-		return "the relay keeps forgetting this device's session (it may be restarting) — try again in a minute"
+		return "The relay keeps forgetting this device (it may be restarting). Try again in a minute."
 	case he.Status == http.StatusUnauthorized && he.Body == api.ErrUnknownIdentity && linkedDevice.Load():
-		return "the relay no longer knows this device: it was unlinked (or the account was set up from scratch). To add it again: `itter burn` here, then run `itter`"
+		return "The relay no longer knows this device: it was unlinked (or the account started over). To add it again: `itter burn` here, then run `itter`."
 	case he.Status == http.StatusUnauthorized && he.Body == api.ErrUnknownIdentity:
-		return "the relay no longer knows this device: its identity was released or replaced. To use this device again: `itter burn`, then run `itter`"
+		return "The relay no longer knows this device: its identity was released or replaced. To use it again: `itter burn`, then run `itter`."
 	case he.Status == http.StatusUnauthorized:
-		return "the relay did not accept that this request came from this device — try again"
+		return "The relay didn't believe that came from this device. Try again?"
 	case he.Status == http.StatusTooManyRequests && he.Body == api.ErrInboxFull:
-		return "the recipient has too many unread messages from you waiting — the rest stay queued"
+		return "They have too many unread messages from you already. The rest wait in line."
 	case he.Status == http.StatusTooManyRequests:
-		return "the relay is rate-limiting you — try again in a minute"
+		return "Whoa, slow down: the relay is rate-limiting you. Try again in a minute."
 	case he.Status >= 500:
-		return fmt.Sprintf("the relay has a problem (%d) — try again later", he.Status)
+		return fmt.Sprintf("The relay has a problem (%d). Try again later.", he.Status)
 	}
-	return fmt.Sprintf("the relay refused: %s", clean(he.Body)) // relay text is untrusted too
+	return fmt.Sprintf("The relay said no: %s", clean(he.Body)) // relay text is untrusted too
 }
 
 // retryable reports whether err is worth retrying later without any change.
@@ -273,7 +288,7 @@ func (a *app) directory(peer string) (*dirInfo, error) {
 // earlyNotice is for messages of a session whose handshake this device never
 // got: the relay took it from the sender and then did not deliver it (the
 // sender was ignored at the time, or this device was away for too long).
-const earlyNotice = "%d message(s) from @%s could not be read: the key exchange they belong to never reached this device. Their device sends it again by itself (after some minutes at first, after a day at the latest). To set up a session right now, write to @%s — and ask them to send these again."
+const earlyNotice = "%d message(s) from @%s could not be read: the key exchange they belong to never reached this device. Their device sends it again by itself (after some minutes at first, after a day at the latest). To set up a session right now, write to @%s, and ask them to send these again."
 
 const staleNotice = "Dropped %d message(s) sent in @%s's name by a device or identity the relay does not list for that account: an old device of theirs, or someone pretending to be them."
 
@@ -358,7 +373,7 @@ func (a *app) replay(peer string, held [][]byte, b *batch) {
 }
 
 func errBlocked(name string) error {
-	return userErrf("@%s shows a different identity than the one on record — not sent. Compare the new safety number (`sn @%s`), then `accept @%s`", name, name, name)
+	return userErrf("@%s shows a different identity than the one on record, so: not sent. Compare the new safety number (`sn @%s`), then `accept @%s`.", name, name, name)
 }
 
 // errGone and errChanged are what the relay answers when a queued message
@@ -412,10 +427,10 @@ func (a *app) prepare(target string, refresh bool) (string, error) {
 	}
 	d, err := verifyDirectory(target, raw)
 	if err != nil {
-		return "", userErrf("the relay delivered an invalid directory entry for @%s (%v) — not sending", target, err)
+		return "", userErrf("Whoa: the relay sent a broken directory entry for @%s (%v). Not sending.", target, err)
 	}
 	if self && !pqc.IdentityEqual(d.identity, a.v.AccountIdentity()) {
-		return "", userErrf("the relay lists a different identity for your own account — run `itter status`")
+		return "", userErrf("Whoa: the relay lists a different identity for your own account. Check `itter status`.")
 	}
 
 	// Handshakes are slow (a hash-based signature each): outside the lock.
@@ -427,7 +442,7 @@ func (a *app) prepare(target string, refresh bool) (string, error) {
 			}
 			sess, err := pqc.Initiate(id, me, d.bundles[dev])
 			if err != nil {
-				return "", userErrf("the relay delivered an invalid key bundle for @%s (%v) — not sending", d.name, err)
+				return "", userErrf("Whoa: the relay sent a broken key bundle for @%s (%v). Not sending.", d.name, err)
 			}
 			sessions[dev] = sess
 		}
@@ -545,11 +560,11 @@ func (a *app) sendPayload(target, text string, control []byte) (sendOutcome, err
 		name, err := a.prepare(target, false)
 		switch {
 		case relay.Status(err) == http.StatusNotFound:
-			return sendOutcome{}, userErrf("there is no itter user @%s", target)
+			return sendOutcome{}, userErrf("There's no itter user @%s.", target)
 		case relay.Status(err) == http.StatusGone:
-			return sendOutcome{}, userErrf("@%s has not set up DMs (they need to run `itter` once)", target)
+			return sendOutcome{}, userErrf("@%s doesn't have DMs yet. They need the itter client (itter.sh/install) and to type dm once.", target)
 		case err != nil && relay.Status(err) == 0 && !isUserErr(err), err != nil && relay.Status(err) >= 400:
-			return sendOutcome{}, userErrf("%s. Not every device of @%s has a session yet, so the message could not be queued either", explain(err), target)
+			return sendOutcome{}, userErrf("%s Not every device of @%s has a session yet, so it couldn't be queued either.", ended(explain(err)), target)
 		case err != nil:
 			return sendOutcome{}, err
 		}
@@ -783,7 +798,7 @@ func (a *app) flushPass(only func(*vault.QueuedWire) bool) (sent []vault.QueuedW
 			uerr = a.v.Update(func() error {
 				a.v.RemoveOutbox(q.ID)
 				a.v.SetStatus(q.Target, q.ID, vault.StatusFailed)
-				a.v.AddSystem(q.Target, fmt.Sprintf("A message to @%s was rejected and NOT delivered: %s.", q.Target, explain(err)))
+				a.v.AddSystem(q.Target, fmt.Sprintf("A message to @%s was rejected and NOT delivered: %s", q.Target, ended(explain(err))))
 				return nil
 			})
 		}
@@ -1127,11 +1142,11 @@ func (a *app) accept(peer string) (string, error) {
 	// The new identity's devices are whatever its own signed list says.
 	d, err := a.directory(peer)
 	if err != nil {
-		return "", userErrf("%s — accepting needs the relay, try again", explain(err))
+		return "", userErrf("%s Accepting needs the relay. Try again?", ended(explain(err)))
 	}
 	if d == nil || !pqc.IdentityEqual(d.identity, info.Pending) {
 		a.checkDirectory(peer)
-		return "", userErrf("@%s's identity is not the one you were shown any more — see the chat", peer)
+		return "", userErrf("@%s's identity isn't the one you were shown anymore. See the chat.", peer)
 	}
 	b := newBatch()
 	var sn string
@@ -1139,7 +1154,7 @@ func (a *app) accept(peer string) (string, error) {
 	err = a.v.Update(func() error {
 		now, _ := a.v.ContactInfo(peer)
 		if !pqc.IdentityEqual(now.Pending, d.identity) {
-			return userErrf("@%s's identity changed again — nothing was accepted", peer)
+			return userErrf("@%s's identity changed again, so nothing was accepted.", peer)
 		}
 		held, err := a.v.Accept(peer)
 		if err != nil {

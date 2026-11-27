@@ -60,9 +60,9 @@ func linkDevice(dir string, rc *relay.Client, username string) error {
 		me, _ := v.Me()
 		switch reg, keys := v.SetupState(); {
 		case !v.IsLinked():
-			return userErrf("this device is already set up as the first device of @%s — `itter burn` first if you want to link it to an account instead", me)
+			return userErrf("This device is already the first device of @%s. To link it to an account instead: `itter burn` first.", me)
 		case !strings.EqualFold(me, username):
-			return userErrf("this device is being linked to @%s — `itter burn` first if you want to switch accounts", me)
+			return userErrf("This device is being linked to @%s. To switch accounts: `itter burn` first.", me)
 		case reg && keys:
 			fmt.Printf("Already linked as @%s. Nothing to do.\n", me)
 			return nil
@@ -92,7 +92,7 @@ func linkDevice(dir string, rc *relay.Client, username string) error {
 	if _, keys := v.SetupState(); !keys {
 		fmt.Println("Generating prekeys (X25519 + ML-KEM-1024 + FrodoKEM-1344)...")
 		if err := a.publishPreKeys(v.LatestSPK() == nil, otpkBatch); err != nil {
-			return userErrf("could not publish prekeys: %s. Run `itter link %s` again to finish", explainLocal(err), name)
+			return userErrf("Couldn't publish prekeys: %s Run `itter link %s` again to finish.", ended(explainLocal(err)), name)
 		}
 		err := v.Update(func() error {
 			v.SetSetupState(true, true)
@@ -149,11 +149,11 @@ func (a *app) requestLink(username string, keys *accountKeys) error {
 		case http.StatusForbidden:
 			return userErrf("none of your SSH keys belongs to @%s on itter (RSA keys do not count). Looked in: %s. If the right key is somewhere else: ITTER_KEY=/path/to/key", username, strings.Join(keys.looked, ", "))
 		}
-		return userErrf("%s. Run `itter link %s` again", explain(err), username)
+		return userErrf("%s Run `itter link %s` again.", ended(explain(err)), username)
 	}
 
 	fmt.Println()
-	fmt.Println("  LINK CODE — type it on a device that is already set up:")
+	fmt.Println("  Your LINK CODE. Type it on a device that already has your DMs:")
 	fmt.Println()
 	fmt.Println("    itter approve " + api.FormatRecovery(secret))
 	fmt.Println()
@@ -261,7 +261,7 @@ func (a *app) approve(secret []byte) (string, error) {
 	}
 	again := "The device is on your list already; run the same command again to finish"
 	if err := a.rc.SetDevices(a.auth(), list); err != nil {
-		return "", userErrf("%s. %s", explain(err), again)
+		return "", userErrf("%s %s", ended(explain(err)), again)
 	}
 	if err := a.v.Update(func() error { a.v.SetListUploaded(true); return nil }); err != nil {
 		return "", err
@@ -269,7 +269,7 @@ func (a *app) approve(secret []byte) (string, error) {
 	res, _ := json.Marshal(api.LinkResult{Username: me, Identity: account, List: list,
 		Tag: pqc.LinkResultTag(secret, me, account, info.DeviceKey, list.V)})
 	if err := a.rc.LinkAnswer(a.auth(), linkID, res); err != nil {
-		return "", userErrf("%s. %s", explain(err), again)
+		return "", userErrf("%s %s", ended(explain(err)), again)
 	}
 	return fmt.Sprintf("Linked device %s. It can read and send as @%s from now on (%d devices in total). `devices` lists them, `unlink` removes one.",
 		short(pqc.IdentityID(info.DeviceKey)), me, len(list.Keys)+1), nil
@@ -332,9 +332,9 @@ func (a *app) unlink(prefix string) (string, error) {
 		}
 		switch {
 		case matches == 0:
-			return userErrf("no linked device starts with %q — `itter devices` shows them", prefix)
+			return userErrf("No linked device starts with %q. `itter devices` shows them.", prefix)
 		case matches > 1:
-			return userErrf("%q matches %d devices — give more of the id", prefix, matches)
+			return userErrf("%q matches %d devices. Give a bit more of the id?", prefix, matches)
 		}
 		l, err := pqc.SignDeviceList(id, me, cur.Version()+1, keep)
 		if err != nil {
@@ -428,7 +428,7 @@ func cmdApprove(args []string) error {
 	}
 	secret, err := api.ParseRecovery(strings.Join(args, ""))
 	if err != nil {
-		return userErrf("that is not a valid link code — copy it exactly as the new device shows it")
+		return userErrf("That's not a valid link code. Copy it exactly as the new device shows it.")
 	}
 	a, err := open()
 	if err != nil {

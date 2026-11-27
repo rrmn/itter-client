@@ -390,9 +390,9 @@ func (m appModel) enter(text string) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { s, err := a.unlink(id); return noteMsg{lines: lines(s), err: err} }
 	default:
 		if inChat {
-			m.setStatus(true, "Unknown command /%s — /help lists them. (To send a line starting with a slash, type two.)", fields[0])
+			m.setStatus(true, "Sorry, unknown command: /%s. Are you making stuff up? /help shows what's possible. (To send a line starting with a slash, type two.)", fields[0])
 		} else {
-			m.setStatus(true, "You are not in a chat. Write to someone with: @user hello   (/help lists commands)")
+			m.setStatus(true, "You're not in a chat. Write to someone: @user hello   (/help for more)")
 		}
 	}
 	return m, nil
@@ -412,7 +412,7 @@ func (m *appModel) queueSend(target, text string) {
 	case m.sendCh <- req:
 		m.sending = append(m.sending, req)
 	default:
-		m.setStatus(true, "Too many messages on their way — wait a moment.")
+		m.setStatus(true, "Whoa, slow down: too many messages on their way. Wait a moment.")
 		m.ti.SetValue(text)
 	}
 }
@@ -436,7 +436,7 @@ func (m *appModel) sendDone(d sendDoneMsg) {
 	case d.out.Status == vault.StatusQueued:
 		m.setStatus(false, "Queued, will be sent automatically: %s", d.out.Note)
 	case d.out.Status == vault.StatusFailed:
-		m.setStatus(true, "Not delivered — see the notice in the chat.")
+		m.setStatus(true, "Not delivered. See the notice in the chat.")
 	}
 	// The relay may spell the name differently than it was typed.
 	if d.err == nil && m.filter != d.out.Target && strings.EqualFold(m.filter, d.out.Target) {
@@ -568,7 +568,7 @@ func (m appModel) statusLine() string {
 	case m.status != "":
 		return FgBrightBlk + clean(m.status) + Reset
 	case m.connErr != "" && m.connRetry:
-		return FgBrightYellow + "Offline: " + clean(m.connErr) + ". Retrying; messages you send are queued." + Reset
+		return FgBrightYellow + "Offline: " + ended(clean(m.connErr)) + " Retrying; messages you send are queued." + Reset
 	case m.connErr != "":
 		return FgRed + clean(m.connErr) + Reset
 	}

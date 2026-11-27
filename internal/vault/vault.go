@@ -305,7 +305,7 @@ func (v *Vault) initMaps() {
 // together with ErrLegacy, so it can still be burned.
 func Open(dir string) (*Vault, error) {
 	if !Exists(dir) {
-		return nil, fmt.Errorf("this device is not set up for DMs yet (nothing in %s) — run `itter` to set it up", dir)
+		return nil, fmt.Errorf("this computer isn't set up for DMs yet (nothing in %s). Run itter and type dm.", dir)
 	}
 	username, err := ReadUsername(dir)
 	if err != nil {

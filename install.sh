@@ -27,7 +27,7 @@ FINGERPRINT="6272 705b 6200 d258 80dd 12c9 7db1 911b" # the release key, as `itt
 
 say() { printf '%s\n' "$*"; }
 fail() {
-	printf 'itter: %s\n' "$*" >&2
+	printf 'Error: %s\n' "$*" >&2
 	exit 1
 }
 
@@ -49,11 +49,11 @@ on_path() {
 
 fetch() {
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --proto "$proto" --tlsv1.2 -o "$tmp/$1" "$url/$1" || fail "could not download $url/$1"
+		curl -fsSL --proto "$proto" --tlsv1.2 -o "$tmp/$1" "$url/$1" || fail "Couldn't download $url/$1. Is the internet there?"
 	elif command -v wget >/dev/null 2>&1; then
-		wget -q -O "$tmp/$1" "$url/$1" || fail "could not download $url/$1"
+		wget -q -O "$tmp/$1" "$url/$1" || fail "Couldn't download $url/$1. Is the internet there?"
 	else
-		fail "needs curl or wget"
+		fail "This needs curl or wget."
 	fi
 }
 
@@ -63,7 +63,7 @@ sha256() {
 	elif command -v sha256sum >/dev/null 2>&1; then
 		sha256sum "$1" | cut -d' ' -f1
 	else
-		fail "needs shasum or sha256sum to check the download"
+		fail "This needs shasum or sha256sum, to check the download."
 	fi
 }
 
@@ -114,12 +114,12 @@ main() {
 	case "$(uname -s)" in
 	Darwin) os=darwin ;;
 	Linux) os=linux ;;
-	*) fail "there is no itter program for $(uname -s) yet (only macOS and Linux)" ;;
+	*) fail "Sorry... no itter for $(uname -s) yet. Only macOS and Linux (for now)." ;;
 	esac
 	case "$(uname -m)" in
 	arm64 | aarch64) arch=arm64 ;;
 	x86_64 | amd64) arch=amd64 ;;
-	*) fail "there is no itter program for $(uname -m) processors yet" ;;
+	*) fail "Sorry... no itter for $(uname -m) processors yet." ;;
 	esac
 	# A terminal that runs under Rosetta says x86_64 on an Apple silicon Mac.
 	if [ "$os/$arch" = darwin/amd64 ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = 1 ]; then
@@ -152,16 +152,16 @@ main() {
 	trap 'rm -rf "$tmp"; exit 130' INT
 	trap 'rm -rf "$tmp"; exit 143' TERM
 
-	say "Installing itter for $system from $from ..."
+	say "Getting itter for $system from $from..."
 	fetch "$asset"
 	fetch SHA256SUMS
 	want=$(awk -v f="$asset" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")
 	got=$(sha256 "$tmp/$asset")
-	[ -n "$want" ] || fail "the release lists no $asset; nothing was installed"
-	[ "$want" = "$got" ] || fail "the download does not match the release's checksum; nothing was installed"
-	tar -xzf "$tmp/$asset" -C "$tmp" itter || fail "could not unpack the download"
+	[ -n "$want" ] || fail "Whoa: the release lists no $asset. Nothing was installed."
+	[ "$want" = "$got" ] || fail "Whoa: the download doesn't match the release's checksum. Nothing was installed."
+	tar -xzf "$tmp/$asset" -C "$tmp" itter || fail "Couldn't unpack the download."
 	chmod 755 "$tmp/itter"
-	"$tmp/itter" version >"$tmp/version" 2>&1 || fail "the downloaded program does not run on this computer"
+	"$tmp/itter" version >"$tmp/version" 2>&1 || fail "The downloaded itter doesn't run on this computer. That is... unusual."
 	new=$(sed -n '1s/^itter \([^ ]*\).*/\1/p' "$tmp/version")
 
 	# Where to put it: a folder on the PATH that this user can write to.
@@ -175,16 +175,16 @@ main() {
 		done
 	fi
 	[ -n "$dir" ] || dir="$HOME/.local/bin"
-	mkdir -p "$dir" 2>/dev/null || fail "cannot create $dir (choose another folder with ITTER_INSTALL_DIR=...)"
-	[ -w "$dir" ] || fail "cannot write to $dir (choose another folder with ITTER_INSTALL_DIR=...)"
+	mkdir -p "$dir" 2>/dev/null || fail "Can't create $dir. Pick another folder: ... | ITTER_INSTALL_DIR=/some/dir sh"
+	[ -w "$dir" ] || fail "Can't write to $dir. Pick another folder: ... | ITTER_INSTALL_DIR=/some/dir sh"
 	# A copy next to the old program, then a rename: this works while itter runs.
 	if ! { cp "$tmp/itter" "$dir/.itter.new" && mv -f "$dir/.itter.new" "$dir/itter"; }; then
 		rm -f "$dir/.itter.new"
-		fail "cannot write $dir/itter"
+		fail "Can't write $dir/itter."
 	fi
-	say "Installed itter${new:+ $new} in $(tilde "$dir")."
+	say "Got itter${new:+ $new}! It lives in $(tilde "$dir") now."
 	if ! grep -qF "$FINGERPRINT" "$tmp/version"; then
-		say "Note: this release has another release key than the one this script knows ($FINGERPRINT)."
+		say "Heads up: this release has another release key than the one this script knows ($FINGERPRINT). That is... unusual. Tell us: contact@itter.sh"
 	fi
 
 	if on_path "$dir"; then
@@ -195,24 +195,24 @@ main() {
 		added=no
 		[ "${ITTER_PATH:-1}" = 0 ] || add_to_path "$dir"
 		if [ -n "$rc" ]; then
-			[ "$added" = no ] || say "Added $(tilde "$dir") to your PATH in $(tilde "$rc")."
+			[ "$added" = no ] || say "Added $(tilde "$dir") to your PATH (in $(tilde "$rc"))."
 			next="Next time, open a new terminal and type: itter"
 			now="Open a new terminal and type: itter"
 		else
-			say "$(tilde "$dir") is not on your PATH."
+			say "$(tilde "$dir") isn't on your PATH."
 			next="Next time, type: $dir/itter"
 			now="Start it with: $dir/itter"
 		fi
 	fi
 	other=$(command -v itter 2>/dev/null || true)
 	if [ -n "$other" ] && [ "$other" != "$dir/itter" ]; then
-		say "Note: another itter comes first on your PATH: $other"
+		say "Heads up: another itter comes first on your PATH: $other"
 	fi
 
 	# Start it, if there is someone at a terminal to use it.
 	if [ "${ITTER_START:-1}" != 0 ] && [ -t 1 ] && (exec </dev/tty) 2>/dev/null; then
 		say ""
-		say "Starting itter. $next"
+		say "Here we go! $next"
 		say ""
 		rm -rf "$tmp"
 		trap - EXIT INT TERM

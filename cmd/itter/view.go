@@ -17,7 +17,6 @@ package main
 // travel through the DM relay, as always.
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -459,20 +458,20 @@ func rememberAccount(name string) {
 
 func cmdItter() error {
 	if !interactive() {
-		return userErrf("`itter` shows itter, and needs a terminal for it. In scripts, use `itter dm` and `itter read`")
+		return userErrf("itter needs a terminal. (In scripts: itter dm, itter read.)")
 	}
-	p := &prompter{in: bufio.NewReader(os.Stdin), out: os.Stdout}
+	p := newPrompter(os.Stdin, os.Stdout)
 	name, remembered := currentAccount()
 	if name == "" {
-		fmt.Println("itter: microblogging in your terminal, with private messages.")
+		fmt.Println("Welcome to itter.sh! Social media for purists, now with DMs.")
 		fmt.Println()
-		n, err := p.line("Your itter username (a new one signs you up)", guessUsername())
+		n, err := p.line("Your itter username (or a new one, to sign up)", guessUsername())
 		if err != nil {
 			return err
 		}
 		name = stripAt(n)
 		if !api.ValidUsername(name) {
-			return userErrf("%q is not a valid itter username (3 to 20 letters, digits or _)", name)
+			return userErrf("Invalid username. Must be 3-20 characters (letters, numbers, underscores).")
 		}
 	}
 	keys, err := findAccountKeys()
@@ -504,13 +503,13 @@ func loginOrSignUp(t *relay.Tunnel, name string, keys *accountKeys, p *prompter,
 		return cli, explainLogin(err)
 	}
 	if !mayCreate {
-		return nil, userErrf("itter did not let @%s in with your SSH key. If the key changed, add the new one in itter (settings key add <name> <public key>) from a device that still gets in", name)
+		return nil, userErrf("itter didn't let @%s in with your SSH key. New key? Add it from a device that still gets in: settings key add <name> <public key>", name)
 	}
-	fmt.Printf("\nitter did not let @%s in with your SSH key.\n", name)
-	fmt.Printf("If @%s is yours, add this key to it in itter: settings key add <name> <public key>.\n", name)
+	fmt.Printf("\nHm, itter doesn't know @%s with this SSH key.\n", name)
+	fmt.Printf("Is @%s yours? Then add this key to it in itter: settings key add <name> <public key>\n", name)
 	key := signers[0]
-	if !p.yes(fmt.Sprintf("If @%s is new: create it now, with your key %s", name, ssh.FingerprintSHA256(key.PublicKey()))) {
-		return nil, userErrf("not logged in")
+	if !p.yes(fmt.Sprintf("Is @%s new? Sign up now, with your key %s", name, ssh.FingerprintSHA256(key.PublicKey()))) {
+		return nil, &byeErr{"Okay, no new account. Later!"}
 	}
 	reg, err := t.Login(ctx, "register:"+name, clientVersion(), ssh.PublicKeys(key))
 	if errors.As(err, &ae) {
@@ -529,9 +528,9 @@ func loginOrSignUp(t *relay.Tunnel, name string, keys *accountKeys, p *prompter,
 	reg.Close()
 	cli, err = t.Login(ctx, name, clientVersion(), auth)
 	if err != nil {
-		return nil, userErrf("@%s was not created (%v). The name may be taken: try another one", name, err)
+		return nil, userErrf("Couldn't create @%s (%v). The name may be taken, or we screwed up somehow. Try another one?", name, err)
 	}
-	fmt.Printf("Welcome to itter, @%s!\n", name)
+	fmt.Printf("Welcome to itter, @%s! Have fun & see you on the other side!\n", name)
 	return cli, nil
 }
 
@@ -541,9 +540,9 @@ func explainLogin(err error) error {
 	}
 	var he *relay.HostKeyError
 	if errors.As(err, &he) {
-		return userErrf("itter's server showed another SSH host key than the one on record (%s, in %s). That can mean someone is in between: not connecting", he.Got, tilde(he.Record))
+		return userErrf("Whoa: itter's server shows a different SSH host key than the one on record (%s, in %s). Someone may be in between, so: not connecting.", he.Got, tilde(he.Record))
 	}
-	return userErrf("cannot reach itter: %v", err)
+	return userErrf("Can't reach itter (%v). Is the internet there?", err)
 }
 
 // showItter runs itter's session in this terminal until it ends.
@@ -633,7 +632,7 @@ func showItter(cli *ssh.Client, name string) error {
 		fmt.Println()
 		return nil
 	}
-	return userErrf("\nthe connection to itter was lost (%v)", sessErr)
+	return userErrf("\nLost the connection to itter (%v).", sessErr)
 }
 
 // keepAlive asks the server for a sign of life now and then, so that idle

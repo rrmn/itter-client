@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -14,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
@@ -24,60 +25,54 @@ import (
 	"github.com/rrmn/itter-client/internal/vault"
 )
 
-const usage = `itter — itter in your terminal, with private messages
+const usage = `itter: itter.sh in your terminal, now with DMs.
 
-` + "`itter`" + ` shows itter the way ssh would, logged in with your SSH key. In there,
-type dm (or press Ctrl-]) for your direct messages, and Esc to come back.
+` + "`itter`" + ` is itter as you know it from ssh, logged in with your SSH key.
+In there, type dm (or press Ctrl-]) for your DMs. Esc comes back.
 
-DMs are end-to-end encrypted on this device, and post-quantum: a Triple
-Ratchet (Signal's Double Ratchet with X25519, plus ML-KEM-768 and FrodoKEM-976
-ratchets), identities signed with Ed25519 + ML-DSA-87 + SLH-DSA. No RSA.
+DMs are end-to-end encrypted on your computer, and post-quantum. No RSA
+anywhere. The nerdy details: https://github.com/rrmn/itter-client
 
 everyday:
-  itter                        open itter (dm inside opens your DMs)
-  itter dms                    open just your DMs (type /help inside)
-  itter dm @<user> <msg>       send one message and exit
-  itter read [@<user>] [n]     fetch new messages; with @user show the last n
-  itter contacts               who you talk to, and whether they are verified
-  itter status                 account, relay connection, unread and unsent messages
-  itter ignore [@<user>]       stop getting DMs from someone (itter's ignore list)
-  itter unignore @<user>       undo that
+  itter                        open itter (dm in there opens your DMs)
+  itter dms                    open just your DMs (/help in there)
+  itter dm @<user> <msg>       send one message, done
+  itter read [@<user>] [n]     new messages; with @user, the last n
+  itter contacts               who you talk to, and who's verified
+  itter status                 account, relay, unread and unsent messages
+  itter ignore [@<user>]       no more DMs from someone (itter's ignore list)
+  itter unignore @<user>       take that back
 
 trust:
-  itter sn [@<user>]           your fingerprint, or the safety number with a contact
-  itter verify @<user>         mark a contact as verified (you compared safety numbers)
-  itter unverify @<user>       remove that mark
-  itter accept @<user>         a contact shows a new identity: accept it
-  itter reset @<user>          drop a stuck session and start a fresh one
+  itter sn [@<user>]           your fingerprint, or your safety number with someone
+  itter verify @<user>         you compared safety numbers, and they matched
+  itter unverify @<user>       take that back
+  itter accept @<user>         someone has a new identity: accept it
+  itter reset @<user>          chat stuck? start a fresh session
 
 account and devices:
-  itter setup <username>       make this the account's first device (what the
-                               first run does; RSA keys are refused)
-  itter link <username>        add this device to an account that is already
-                               set up elsewhere; shows a code for...
+  itter setup <username>       make this the account's first device (what
+                               the first dm does; no RSA keys)
+  itter link <username>        add this device to an account with DMs
+                               elsewhere; shows a code for...
   itter approve <code>         ...the first device, which lets the new one in
-  itter devices                the account's devices
-  itter unlink <device id>     remove a linked device (on the first device)
-  itter recovery-code          show the code that frees your account if the
-                               first device is lost
-  itter recover <username>     first device lost: release the account with that code
-  itter burn [--force]         wipe this device; on the first device this also
-                               releases the account's identity
-
-The first time you open your DMs, itter sets this device up for them, with
-the SSH key you log in to itter with. DMs travel through itter's own SSH port.
+  itter devices                your devices
+  itter unlink <device id>     remove a device (on the first device)
+  itter recovery-code          show your recovery code again
+  itter recover <username>     first device lost? free the account with that code
+  itter burn [--force]         wipe this device (on the first device, also
+                               the account's DM identity)
 
 this program:
   itter version                its version, and the release key it trusts
-  itter update [--check]       install the newest release (only if it is
-                               signed with that key)
+  itter update [--check]       get the newest release (only if signed with that key)
 
 env:
   ITTER_HOST    itter's SSH server (default app.itter.sh:22)
-  ITTER_KEY     the SSH key of your itter account, if it is not in ssh-agent
-                or ~/.ssh/id_ed25519
-  ITTER_DIR     state directory (default ~/.itter)
-  ITTER_RELAY   talk to a relay directly at this http(s) address instead
+  ITTER_KEY     your itter SSH key, if itter doesn't find it by itself (a .pub
+                file works too: then only that key is used, from your agent)
+  ITTER_DIR     where itter keeps its stuff (default ~/.itter)
+  ITTER_RELAY   talk to a relay directly at this http(s) address
 `
 
 func main() {
@@ -134,7 +129,7 @@ func main() {
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", os.Args[1], usage)
+		fmt.Fprintf(os.Stderr, "Sorry, unknown command: %q. Are you making stuff up? Try: itter help\n", os.Args[1])
 		os.Exit(2)
 	}
 	os.Exit(report(err))
@@ -144,8 +139,30 @@ func report(err error) int {
 	if err == nil {
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "error: %s\n", explainLocal(err))
+	var bye *byeErr
+	if errors.As(err, &bye) {
+		fmt.Fprintln(os.Stderr, bye.msg)
+		return 1
+	}
+	label := "Error:"
+	if term.IsTerminal(int(os.Stderr.Fd())) && os.Getenv("NO_COLOR") == "" {
+		label = FgRed + label + Reset
+	}
+	fmt.Fprintf(os.Stderr, "%s %s\n", label, sentence(explainLocal(err)))
 	return 1
+}
+
+// sentence starts a message with a capital letter (but leaves itter's name
+// alone).
+func sentence(s string) string {
+	if s == "" || strings.HasPrefix(s, "itter") {
+		return s
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	if !unicode.IsLower(r) {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[n:]
 }
 
 // explainLocal is explain for errors that may not involve the relay at all.
@@ -250,7 +267,7 @@ func relayURL() (string, error) {
 		host := u.Hostname()
 		ip := net.ParseIP(host)
 		if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-			return "", userErrf("refusing to talk to %s over plain http — use https (or set ITTER_ALLOW_HTTP=1 if you really mean it)", u.Host)
+			return "", userErrf("Not talking to %s over plain http. Use https (or ITTER_ALLOW_HTTP=1, if you really mean it).", u.Host)
 		}
 	}
 	return raw, nil
@@ -269,9 +286,9 @@ func open() (*app, error) {
 	if reg, keys := v.SetupState(); !reg || !keys {
 		me, _ := v.Me()
 		if v.IsLinked() {
-			return nil, userErrf("linking this device to @%s did not finish — run `itter link %s` again", me, me)
+			return nil, userErrf("Linking this device to @%s didn't finish. Run `itter link %s` again.", me, me)
 		}
-		return nil, userErrf("setup for @%s did not finish — run `itter setup %s` again", me, me)
+		return nil, userErrf("Setup for @%s didn't finish. Run `itter setup %s` again.", me, me)
 	}
 	linkedDevice.Store(v.IsLinked())
 	return newApp(v, rc), nil
@@ -287,12 +304,13 @@ func randID() string {
 
 func printRecovery(code []byte) {
 	fmt.Println()
-	fmt.Println("  RECOVERY CODE — write it down and keep it away from this computer:")
+	fmt.Println("  Your RECOVERY CODE. Write it down, and keep it somewhere else than here:")
 	fmt.Println()
 	fmt.Println("    " + api.FormatRecovery(code))
 	fmt.Println()
-	fmt.Println("  If this device is lost, `itter recover` with this code is the only way to")
-	fmt.Println("  set up DMs for your account again. `itter recovery-code` shows it again.")
+	fmt.Println("  Lose this computer, and this code is the only way to set up DMs for")
+	fmt.Println("  your account again (itter recover). Seriously. itter recovery-code")
+	fmt.Println("  shows it again.")
 	fmt.Println()
 }
 
@@ -304,28 +322,27 @@ func (e *alreadySetUp) Error() string { return e.msg }
 func (e *alreadySetUp) Unwrap() error { return &userErr{e.msg} }
 
 func errAlreadySetUp(username string) error {
-	return &alreadySetUp{fmt.Sprintf("@%s is already set up on another device. To use this one as well: `itter link %s`. To move the account here instead: `itter burn` on the other device (or, if it is gone, `itter recover %s` with your recovery code), then run setup again", username, username, username)}
+	return &alreadySetUp{fmt.Sprintf("@%s already has DMs on another device. Use this one too: `itter link %s`. Move them here instead: `itter burn` on the other device (gone? `itter recover %s` with your recovery code), then set up again.", username, username, username)}
 }
 
 func errNoSuchUser(username string) error {
-	return userErrf("there is no itter user @%s — register on itter first (ssh register:%s@app.itter.sh)", username, username)
+	return userErrf("There's no itter user @%s. Sign up first: run itter with that name (or ssh register:%s@app.itter.sh).", username, username)
 }
 
 func cmdSetup(args []string) error {
 	if len(args) < 1 {
-		return userErrf("usage: itter setup <username>")
+		return userErrf("Usage: itter setup <username>")
 	}
 	username := stripAt(args[0])
 	if !api.ValidUsername(username) {
-		return userErrf("%q is not a valid itter username", username)
+		return userErrf("Invalid username. Must be 3-20 characters (letters, numbers, underscores).")
 	}
 	done, err := setupDevice(username)
 	if err != nil || !done {
 		return err
 	}
-	fmt.Println("Run `itter` to chat. When you talk to someone, compare safety numbers")
-	fmt.Println("(`itter sn @user`) over a channel you trust: that comparison is what")
-	fmt.Println("proves who you are talking to, whatever else gets broken.")
+	fmt.Println("Run itter to chat. Tip: compare safety numbers with the people you write")
+	fmt.Println("to (itter sn @user), somewhere you trust. That's how you know it's really them.")
 	return nil
 }
 
@@ -345,10 +362,10 @@ func setupDevice(username string) (done bool, err error) {
 		}
 		me, _ := v.Me()
 		if !strings.EqualFold(me, username) {
-			return false, userErrf("this device is set up for @%s — `itter burn` first if you want to switch accounts", me)
+			return false, userErrf("This device is set up for @%s. To switch accounts: `itter burn` first.", me)
 		}
 		if v.IsLinked() {
-			return false, userErrf("this device is linked (or being linked) to @%s — finish with `itter link %s`, or `itter burn` first to start over", me, me)
+			return false, userErrf("This device is linked (or being linked) to @%s. Finish with `itter link %s`, or `itter burn` to start over.", me, me)
 		}
 		if reg, keys := v.SetupState(); reg && keys {
 			fmt.Printf("Already set up as @%s. Nothing to do.\n", me)
@@ -371,9 +388,9 @@ func setupDevice(username string) (done bool, err error) {
 			case relay.Status(err) == http.StatusNotFound:
 				return false, errNoSuchUser(username)
 			case relay.Status(err) != http.StatusGone:
-				return false, userErrf("%s. Nothing was set up", explain(err))
+				return false, userErrf("%s Nothing was set up.", ended(explain(err)))
 			}
-			fmt.Println("Generating identity (Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s, X25519)...")
+			fmt.Println("Making your identity (Ed25519 + ML-DSA-87 + SLH-DSA, X25519)...")
 			if v, err = vault.Create(dir, username); err != nil {
 				return false, err
 			}
@@ -385,9 +402,9 @@ func setupDevice(username string) (done bool, err error) {
 	}
 	name, id := v.Me()
 
-	fmt.Println("Generating prekeys (X25519 + ML-KEM-1024 + FrodoKEM-1344)...")
+	fmt.Println("Making prekeys (X25519 + ML-KEM-1024 + FrodoKEM-1344)...")
 	if err := a.publishPreKeys(v.LatestSPK() == nil, otpkBatch); err != nil {
-		return false, userErrf("could not publish prekeys: %s. Run `itter setup %s` again to finish", explainLocal(err), name)
+		return false, userErrf("Couldn't publish prekeys: %s Run `itter setup %s` again to finish.", ended(explainLocal(err)), name)
 	}
 	err = v.Update(func() error {
 		v.SetSetupState(true, true)
@@ -397,7 +414,7 @@ func setupDevice(username string) (done bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	fmt.Printf("\nDone. This device is @%s.\nFingerprint: %s\n\n", name, pqc.Fingerprint(id.Pub.Encode()))
+	fmt.Printf("\nDone! This computer is @%s now.\nFingerprint: %s\n\n", name, pqc.Fingerprint(id.Pub.Encode()))
 	return true, nil
 }
 
@@ -420,7 +437,7 @@ func (a *app) register(username string, keys *accountKeys) error {
 		return err
 	}
 	var name string
-	fmt.Println("Registering...")
+	fmt.Println("Telling the DM relay...")
 	err = keys.withAccountKeys(func(signers []ssh.Signer) error {
 		ts := time.Now().Unix()
 		payload := api.RegPayload(username, idEnc, recKey, ts)
@@ -429,7 +446,7 @@ func (a *app) register(username string, keys *accountKeys) error {
 			return err
 		}
 		if len(sigs) == 0 {
-			return userErrf("the SSH key refused to sign")
+			return userErrf("Your SSH key didn't sign. (Did you say no in 1Password, or to your agent?)")
 		}
 		idSig, err := id.Sign.SignFull(payload, "dm-binding")
 		if err != nil {
@@ -441,12 +458,12 @@ func (a *app) register(username string, keys *accountKeys) error {
 	if err != nil {
 		if relay.Status(err) == 0 && isUserErr(err) {
 			// A key that would not sign, a wrong passphrase: nothing reached the relay.
-			return userErrf("%s. Your new identity is kept; run `itter setup %s` again", explain(err), username)
+			return userErrf("%s Your new identity is kept: run `itter setup %s` again.", ended(explain(err)), username)
 		}
 		if retryable(err) || relay.Status(err) == http.StatusUnauthorized { // 401 here means: wrong clock
 			// The relay may or may not have stored the identity. Keep it, so
 			// that running setup again completes instead of locking us out.
-			return userErrf("%s. Nothing is lost: run `itter setup %s` again to finish", explain(err), username)
+			return userErrf("%s Nothing is lost: run `itter setup %s` again to finish.", ended(explain(err)), username)
 		}
 		_ = v.Burn() // definitively refused: this identity was never registered
 		switch relay.Status(err) {
@@ -455,9 +472,9 @@ func (a *app) register(username string, keys *accountKeys) error {
 		case http.StatusNotFound:
 			return errNoSuchUser(username)
 		case http.StatusForbidden:
-			return userErrf("none of your SSH keys belongs to @%s on itter (RSA keys do not count). Looked in: %s. If the right key is somewhere else: ITTER_KEY=/path/to/key", username, strings.Join(keys.looked, ", "))
+			return userErrf("None of your SSH keys belongs to @%s on itter (RSA keys don't count). Looked in: %s. The right one is somewhere else? Try: ITTER_KEY=/path/to/key itter", username, strings.Join(keys.looked, ", "))
 		}
-		return userErrf("registration failed: %s", explain(err))
+		return userErrf("Registration failed: %s", explain(err))
 	}
 	if !api.ValidUsername(name) || !strings.EqualFold(name, username) {
 		name = username
@@ -472,8 +489,7 @@ func (a *app) register(username string, keys *accountKeys) error {
 }
 
 func confirm(prompt, word string) bool {
-	fmt.Print(prompt)
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, _ := newPrompter(os.Stdin, os.Stdout).read(prompt)
 	return strings.TrimSpace(line) == word
 }
 
@@ -492,7 +508,7 @@ func cmdBurn(args []string) error {
 	if !legacy && v.IsLinked() {
 		// A linked device only takes itself out; the account stays.
 		if !confirm(fmt.Sprintf("This wipes all local messages and keys of @%s on THIS device. Your other devices keep working.\nType BURN to confirm: ", me), "BURN") {
-			return userErrf("aborted, nothing was deleted")
+			return &byeErr{"Okay, nothing was deleted."}
 		}
 		if reg, _ := v.SetupState(); reg {
 			err := rc.RetireDevice(relay.Auth{Username: me, ID: id})
@@ -512,7 +528,7 @@ func cmdBurn(args []string) error {
 		return nil
 	}
 	if !confirm(fmt.Sprintf("This releases @%s's DM identity and wipes all local messages and keys. Linked devices stop working too.\nType BURN to confirm: ", me), "BURN") {
-		return userErrf("aborted, nothing was deleted")
+		return &byeErr{"Okay, nothing was deleted."}
 	}
 	if registered, _ := v.SetupState(); registered && !legacy {
 		err := rc.Release(relay.Auth{Username: me, ID: id})
@@ -527,7 +543,7 @@ func cmdBurn(args []string) error {
 		}
 		if err != nil {
 			if !force {
-				return userErrf("could not release @%s on the relay (%s). Nothing was deleted. Try again when the relay is reachable — or `itter burn --force`, after which only your recovery code can free the account", me, explain(err))
+				return userErrf("Couldn't release @%s on the relay (%s). Nothing was deleted. Try again when the relay is reachable, or `itter burn --force` (after that, only your recovery code can free the account).", me, explain(err))
 			}
 			fmt.Printf("Warning: @%s is still registered on the relay (%s).\n", me, explain(err))
 			if code, _ := v.RecoveryCode(); len(code) == 32 {
@@ -548,10 +564,10 @@ func cmdRecoveryCode() error {
 		return err
 	}
 	if v.IsLinked() {
-		return userErrf("the recovery code belongs to the account's first device — run this there")
+		return userErrf("The recovery code lives on the account's first device. Run this there.")
 	}
 	if reg, keys := v.SetupState(); !reg || !keys {
-		return userErrf("setup did not finish — run `itter setup <username>` again; it shows the recovery code")
+		return userErrf("Setup didn't finish. Run `itter setup <username>` again: it shows the recovery code.")
 	}
 	var code []byte
 	if err := v.Update(func() (err error) { code, err = v.RecoveryCode(); return }); err != nil {
@@ -575,12 +591,11 @@ func cmdRecover(args []string) error {
 	}
 	if vault.Exists(configDir()) {
 		if name, err := vault.ReadUsername(configDir()); err == nil && strings.EqualFold(name, username) {
-			return userErrf("this device still holds @%s's identity — use `itter burn` instead", name)
+			return userErrf("This device still holds @%s's identity. Use `itter burn` instead.", name)
 		}
 	}
 	fmt.Printf("This releases @%s's DM identity on the relay. The device that holds it\nstops working for DMs, and messages still waiting for it are deleted.\n", username)
-	fmt.Print("Recovery code: ")
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, _ := newPrompter(os.Stdin, os.Stdout).read("Recovery code: ")
 	code, err := api.ParseRecovery(line)
 	if err != nil {
 		return &userErr{err.Error()}
@@ -609,7 +624,7 @@ func cmdSafetyNumber(args []string) error {
 		}
 		me, _ := v.Me()
 		if len(v.AccountIdentity()) == 0 {
-			return userErrf("linking this device to @%s did not finish — run `itter link %s` again", me, me)
+			return userErrf("Linking this device to @%s didn't finish. Run `itter link %s` again.", me, me)
 		}
 		fmt.Printf("Fingerprint of @%s (the same on all your devices):\n  %s\n", me, pqc.Fingerprint(v.AccountIdentity()))
 		return nil
@@ -636,9 +651,9 @@ func (a *app) safetyReport(who string) []string {
 	if !known {
 		switch {
 		case berr != nil:
-			return []string{fmt.Sprintf("No conversation with @%s yet, and %s.", peer, explain(berr))}
+			return []string{fmt.Sprintf("No chat with @%s yet. %s", peer, ended(explain(berr)))}
 		case dir == nil:
-			return []string{fmt.Sprintf("@%s has not set up DMs (or is not an itter user).", peer)}
+			return []string{fmt.Sprintf("@%s doesn't have DMs yet (or isn't on itter).", peer)}
 		}
 		return []string{
 			fmt.Sprintf("No conversation with @%s yet. If you start one now, the safety number will be:", dir.name),
@@ -689,13 +704,13 @@ func cmdTrust(args []string, what string) error {
 		peer := a.resolve(args[0])
 		info, known := a.v.ContactInfo(peer)
 		if !known {
-			return userErrf("no conversation with @%s yet — exchange a message first", peer)
+			return userErrf("No chat with @%s yet. Say hi first.", peer)
 		}
 		if !(len(args) > 1 && args[1] == "--yes") {
 			// Verifying means: this exact number was compared. Show it.
 			fmt.Printf("Safety number with @%s:\n  %s\n", peer, a.safetyNumber(info.Identity))
 			if !confirm(fmt.Sprintf("Does @%s see exactly the same number on their device? Type YES: ", peer), "YES") {
-				return userErrf("not marked as verified")
+				return &byeErr{"Okay, not marked as verified."}
 			}
 		}
 		msg, err = a.setVerified(peer, true)
@@ -801,7 +816,7 @@ func cmdStatus() error {
 	}
 	fmt.Println()
 	for _, name := range pending {
-		fmt.Printf("DECISION NEEDED: %s shows a new identity — compare `itter sn %s`, then `itter accept %s`\n", name, name, name)
+		fmt.Printf("DECISION NEEDED: %s shows a new identity. Compare `itter sn %s`, then `itter accept %s`.\n", name, name, name)
 	}
 	read, unread := a.v.ReadCounts(), 0
 	for name, msgs := range a.v.GetAllMessages() {
@@ -825,7 +840,7 @@ func cmdStatus() error {
 		if ferr != nil {
 			why = " (" + explain(ferr) + ")"
 		}
-		fmt.Printf("Not sent yet: %d message(s)%s — they go out the next time itter reaches the relay (read, dm, status or the open shell)\n", unsent, why)
+		fmt.Printf("Not sent yet: %d message(s)%s. They go out the next time itter reaches the relay (read, dm, status or the open DMs).\n", unsent, why)
 	}
 	return nil
 }
@@ -854,9 +869,9 @@ func cmdDM(args []string) error {
 	}
 	switch out.Status {
 	case vault.StatusSent:
-		fmt.Printf("Sent to @%s.\n", out.Target)
+		fmt.Printf("Sent to @%s!\n", out.Target)
 	case vault.StatusQueued:
-		fmt.Printf("Queued for @%s — %s. It is sent the next time itter runs.\n", out.Target, out.Note)
+		fmt.Printf("Queued for @%s: %s It goes out the next time itter runs.\n", out.Target, ended(out.Note))
 	default:
 		// The notices that came with the failure say why and what to do.
 		msgs := a.v.GetMessages(out.Target)
@@ -965,7 +980,7 @@ func cmdRead(args []string) error {
 		}
 	}
 	if perr != nil {
-		return userErrf("could not check for new messages: %s", explain(perr))
+		return userErrf("Couldn't check for new messages: %s", explain(perr))
 	}
 	return nil
 }

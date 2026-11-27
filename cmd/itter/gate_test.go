@@ -264,7 +264,7 @@ func TestSetupFindsTheKeyByItself(t *testing.T) {
 		alice, key := w.account(t, "alice")
 		keyFile(t, "id_ed25519", key, "")
 		prompts := asked(t)
-		if out, err := alice.setup(); err != nil || !strings.Contains(out, "This device is @alice") {
+		if out, err := alice.setup(); err != nil || !strings.Contains(out, "This computer is @alice") {
 			t.Fatalf("setup: %q, %v", out, err)
 		}
 		if *prompts != 0 {
@@ -277,7 +277,7 @@ func TestSetupFindsTheKeyByItself(t *testing.T) {
 		bob, key := w.account(t, "bob")
 		path := keyFile(t, "id_ed25519", key, "correct horse")
 		prompts := asked(t, "wrong", "correct horse")
-		if out, err := bob.setup(); err != nil || !strings.Contains(out, "This device is @bob") {
+		if out, err := bob.setup(); err != nil || !strings.Contains(out, "This computer is @bob") {
 			t.Fatalf("setup: %q, %v", out, err)
 		}
 		if *prompts != 2 {
@@ -351,7 +351,7 @@ func TestSetupFindsTheKeyByItself(t *testing.T) {
 		isolateHome(t)
 		hank, _ := w.account(t, "hank")
 		_, err := hank.setup()
-		if err == nil || !strings.Contains(err.Error(), "no SSH key found") || !strings.Contains(err.Error(), "ssh-agent, ~/.ssh/id_ed25519, ~/.ssh/id_ecdsa") {
+		if err == nil || !strings.Contains(err.Error(), "Couldn't find your SSH key") || !strings.Contains(err.Error(), "ssh-agent, 1Password, ~/.ssh/id_ed25519, ~/.ssh/id_ecdsa") {
 			t.Fatalf("no key at all: %v", err)
 		}
 		if vault.Exists(hank.dir) {
@@ -361,7 +361,7 @@ func TestSetupFindsTheKeyByItself(t *testing.T) {
 		_, stranger, _ := ed25519.GenerateKey(rand.Reader)
 		keyFile(t, "id_ed25519", stranger, "")
 		_, err = hank.setup()
-		if err == nil || !strings.Contains(err.Error(), "none of your SSH keys belongs to @hank") {
+		if err == nil || !strings.Contains(err.Error(), "None of your SSH keys belongs to @hank") {
 			t.Fatalf("a key itter does not know: %v", err)
 		}
 		if vault.Exists(hank.dir) {
@@ -372,7 +372,7 @@ func TestSetupFindsTheKeyByItself(t *testing.T) {
 		rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 		keyFile(t, "id_ed25519", rsaKey, "") // whatever the file is called
 		_, err = hank.setup()
-		if err == nil || !strings.Contains(err.Error(), "only RSA keys were found") {
+		if err == nil || !strings.Contains(err.Error(), "Only RSA keys here") {
 			t.Fatalf("RSA only: %v", err)
 		}
 	})
@@ -399,7 +399,7 @@ func TestFirstRun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("first run: %v\n%s", err, out)
 		}
-		for _, want := range []string{"Your itter username", "RECOVERY CODE", "Done. This device is @alice", "compare safety numbers", "Press Enter to open the chat"} {
+		for _, want := range []string{"Your itter username", "RECOVERY CODE", "Done! This computer is @alice now.", "compare safety numbers", "Press Enter to open the chat"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("first run does not show %q:\n%s", want, out)
 			}
@@ -421,7 +421,7 @@ func TestFirstRun(t *testing.T) {
 		t.Setenv("LOGNAME", "someone_else")
 		t.Setenv("USER", "bob")
 		out, err := run(bob, "\n\n")
-		if err != nil || !strings.Contains(out, "Your itter username [bob]:") || !strings.Contains(out, "This device is @bob") {
+		if err != nil || !strings.Contains(out, "Your itter username [bob]:") || !strings.Contains(out, "This computer is @bob") {
 			t.Fatalf("first run: %v\n%s", err, out)
 		}
 		t.Setenv("USER", "not a valid name!")
@@ -447,12 +447,12 @@ func TestFirstRun(t *testing.T) {
 				t.Fatalf("typed %q: something was set up\n%s", typed, out)
 			}
 		}
-		check("x y\n", "not a valid itter username")
-		check("", "no answer")
-		check("ghost\n", "no SSH key found")
+		check("x y\n", "Invalid username")
+		check("", "Later!")
+		check("ghost\n", "Couldn't find your SSH key")
 		_, key, _ := ed25519.GenerateKey(rand.Reader)
 		keyFile(t, "id_ed25519", key, "")
-		check("ghost\n", "there is no itter user @ghost")
+		check("ghost\n", "There's no itter user @ghost")
 	})
 
 	t.Run("an account that already uses DMs: this device is added to it", func(t *testing.T) {
@@ -467,10 +467,10 @@ func TestFirstRun(t *testing.T) {
 		// "n": nothing happens. And nothing was made up front: a recovery code
 		// shown here would belong to an identity that never comes to be.
 		out, err := run(laptop, "carol\nn\n")
-		if err == nil || !strings.Contains(out, "@carol already uses DMs on another device") || vault.Exists(laptop.dir) {
+		if err == nil || !strings.Contains(out, "@carol already has DMs on another device") || vault.Exists(laptop.dir) {
 			t.Fatalf("declined: %v, exists=%v\n%s", err, vault.Exists(laptop.dir), out)
 		}
-		if strings.Contains(out, "RECOVERY CODE") || strings.Contains(out, "Generating identity") {
+		if strings.Contains(out, "RECOVERY CODE") || strings.Contains(out, "Making your identity") {
 			t.Fatalf("an identity was generated for an account that has one:\n%s", out)
 		}
 
@@ -552,7 +552,7 @@ func TestFirstRun(t *testing.T) {
 		interactive = func() bool { return false }
 		defer func() { interactive = old }()
 		err := cmdShell()
-		if err == nil || !strings.Contains(err.Error(), "not set up for DMs yet") || !strings.Contains(err.Error(), "run `itter`") {
+		if err == nil || !strings.Contains(err.Error(), "isn't set up for DMs yet") || !strings.Contains(err.Error(), "Run itter and type dm") {
 			t.Fatalf("got %v", err)
 		}
 	})

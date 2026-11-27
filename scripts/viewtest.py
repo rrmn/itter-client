@@ -98,7 +98,7 @@ try:
     send("\x1b")
     out = until(r"\x1b\[\?1049l"); ok("left the alternate screen")
     send("help\r")
-    until(r"Your private messages, end-to-end encrypted"); ok("back in itter: help shows the dm line for the program")
+    until(r"Your DMs, end-to-end encrypted"); ok("back in itter: help shows the dm line for the program")
     send("\x1d")
     until(r"Direct messages \(all conversations\)"); ok("Ctrl-] opened the DMs")
     send("@alice hi me\r")

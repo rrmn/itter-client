@@ -108,7 +108,7 @@ func TestShell(t *testing.T) {
 	t.Run("outside a chat nothing is sent by accident", func(t *testing.T) {
 		s.t = t
 		s.line("hello world")
-		s.wantView("You are not in a chat")
+		s.wantView("You're not in a chat")
 		if len(s.m.sendCh) != 0 {
 			t.Fatal("something was queued for sending")
 		}
@@ -142,7 +142,7 @@ func TestShell(t *testing.T) {
 		s.deliver()
 		expectTexts(t, bob.pull("alice"), "exit", "x", "chat later?", "dm me maybe", "clear", "/slash at the start")
 		s.line("/nosuchcommand")
-		s.wantView("Unknown command /nosuchcommand")
+		s.wantView("unknown command: /nosuchcommand")
 		if len(s.m.sendCh) != 0 {
 			t.Fatal("an unknown command was sent as a message")
 		}
@@ -152,7 +152,7 @@ func TestShell(t *testing.T) {
 		s.t = t
 		s.line("/dm @nosuchuser are you there?")
 		s.deliver()
-		s.wantView("Not sent: there is no itter user @nosuchuser")
+		s.wantView("Not sent: There's no itter user @nosuchuser")
 		if s.m.ti.Value() != "are you there?" {
 			t.Fatalf("input is %q, want the text back", s.m.ti.Value())
 		}
@@ -285,9 +285,9 @@ func TestShell(t *testing.T) {
 	t.Run("connection problems are visible", func(t *testing.T) {
 		s.t = t
 		s.feed(pollMsg{err: errors.New("dial tcp: connection refused")})
-		s.wantView("Offline: can't reach the relay (dial tcp: connection refused). Retrying")
+		s.wantView("Offline: Can't reach the DM relay (dial tcp: connection refused). Is the internet there? Retrying")
 		s.feed(pollMsg{err: &relay.HTTPError{Status: 401, Body: api.ErrUnknownIdentity}})
-		s.wantView("the relay no longer knows this device")
+		s.wantView("relay no longer knows this device")
 		s.wantNoView("Retrying")
 		s.feed(pollMsg{})
 		s.wantNoView("Offline:")

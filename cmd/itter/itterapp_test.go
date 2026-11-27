@@ -153,7 +153,7 @@ func TestItterAppDM(t *testing.T) {
 		t.Fatalf("the program was told to install itself: %q", text.String())
 	}
 
-	got = dm("SSH-2.0-OpenSSH_9.6", "instead of ssh")
+	got = dm("SSH-2.0-OpenSSH_9.6", "Have fun!")
 	if strings.Contains(got, "\x1b]7777") || !strings.Contains(got, "curl -fsSL") {
 		t.Fatalf("plain ssh: %q", got)
 	}
